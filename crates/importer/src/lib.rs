@@ -261,7 +261,7 @@ mod tests {
     fn imports_and_replaces() {
         let (src, data) = (tmp("src"), tmp("data"));
         fake_package(&src, "1025ABCD");
-        let m = import(&[src.clone()], "1025abcd", &data).unwrap();
+        let m = import(std::slice::from_ref(&src), "1025abcd", &data).unwrap();
         assert_eq!(m.support, Support::Experimental);
         assert!(!m.engine_verified);
         let dts = Manifest::dts_dir(&data);
@@ -270,7 +270,7 @@ mod tests {
         assert!(!dts.join("unrelated_1025ABCD.lic").exists());
         assert_eq!(Manifest::load(&data).unwrap().ssid, "1025ABCD");
         // A second import replaces the first cleanly.
-        import(&[src.clone()], "1025ABCD", &data).unwrap();
+        import(std::slice::from_ref(&src), "1025ABCD", &data).unwrap();
         assert!(!data.join("dts.new").exists());
         std::fs::remove_dir_all(&src).unwrap();
         std::fs::remove_dir_all(&data).unwrap();
@@ -282,10 +282,10 @@ mod tests {
         fake_package(&src, "1025ABCD");
         // Flatten into names like `Ext\Acer1025ABCD\file`, as `unzip` produces for Windows-made archives.
         let flat = tmp("flat3");
-        for f in sources::collect(&[src.clone()]) {
+        for f in sources::collect(std::slice::from_ref(&src)) {
             std::fs::write(flat.join(f.parts[1..].join("\\")), f.read().unwrap()).unwrap();
         }
-        let m = import(&[flat.clone()], "1025ABCD", &data).unwrap();
+        let m = import(std::slice::from_ref(&flat), "1025ABCD", &data).unwrap();
         assert_eq!(m.files.len(), 2);
         for d in [src, data, flat] {
             std::fs::remove_dir_all(d).unwrap();
@@ -296,9 +296,9 @@ mod tests {
     fn reports_missing_tuning() {
         let (src, data) = (tmp("src2"), tmp("data2"));
         fake_package(&src, "1025ABCD");
-        assert!(matches!(import(&[src.clone()], "10251234", &data), Err(Error::NoTuning { .. })));
+        assert!(matches!(import(std::slice::from_ref(&src), "10251234", &data), Err(Error::NoTuning { .. })));
         std::fs::remove_file(src.join("Ext/Acer1025ABCD/CTC_1025ABCD.bin")).unwrap();
-        assert!(matches!(import(&[src.clone()], "1025ABCD", &data), Err(Error::Incomplete { .. })));
+        assert!(matches!(import(std::slice::from_ref(&src), "1025ABCD", &data), Err(Error::Incomplete { .. })));
         assert!(!Manifest::dts_dir(&data).exists(), "failed imports leave nothing behind");
         std::fs::remove_dir_all(&src).unwrap();
         std::fs::remove_dir_all(&data).unwrap();
