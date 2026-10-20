@@ -42,6 +42,14 @@ AcerUltraX does not include any Acer or DTS files: it uses the ones you download
 - **Compare:** plays plain sound at the same loudness as DTS, so you hear only what DTS changes. DTS is louder,
   and louder always sounds "better", so this is the fair way to compare.
 
+## Spatial sound
+
+Like Windows' "Spatial sound: DTS:X Ultra", AcerUltraX can place 5.1 and 7.1 sound (games, films) around you:
+DTS:X Ultra on the laptop speakers, DTS Headphone:X on headphones. Turn it on per device with the **Spatial
+sound** switch on the Sound page (it appears once the "XPERI DTS Utility" 2023 download is set up). Stereo
+sound is not changed by it, as on Windows. Settings → "Spatial sound: save power" uses DTS's lighter presets
+(Windows' "Best power").
+
 ## Devices
 
 Each output keeps its own mode:
@@ -76,6 +84,7 @@ acerultrax-cli status            # what is playing where
 acerultrax-cli mode movie        # music, movie, voice, game1, game2, game3, "custom audio", off, plain
 acerultrax-cli devices           # outputs and their modes
 acerultrax-cli headphones hyperx # search headphone models
+acerultrax-cli spatial on        # spatial sound for 5.1/7.1 on the current output
 acerultrax-cli power off         # plain sound everywhere (power on to return)
 acerultrax-cli autostart off     # stop starting with the session
 ```

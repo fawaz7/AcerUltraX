@@ -8,8 +8,7 @@ AcerUltraX runs Acer's original DTS engine natively on Linux, without Wine, and 
 Windows does, sample for sample.
 
 > **Status: beta.** DTS runs natively and matches Windows bit for bit in offline tests; live sound, the app,
-> profiles and headphone models work. Windows' "Spatial sound: DTS:X Ultra" is still to come (see
-> [Roadmap](#roadmap)).
+> profiles, headphone models and Windows' spatial sound work.
 
 ## Install
 
@@ -101,7 +100,8 @@ Files are stored in `~/.local/share/acerultrax/`.
 7. ✅ Headphone models (over 500, from Acer's and DTS's databases), recognised automatically over Bluetooth/USB
 8. ✅ Profile maker: equaliser and DTS controls, with the measured response curve
 9. ✅ AUR package; .deb/.rpm to follow
-10. Windows "Spatial sound: DTS:X Ultra"
+10. ✅ Windows "Spatial sound": DTS:X Ultra (speakers) and DTS Headphone:X, for 5.1/7.1 sound
+11. The app icon
 
 ## Building and testing
 
@@ -112,6 +112,7 @@ See [docs/TESTING.md](docs/TESTING.md). The code is split into crates under `cra
 | `pe-loader` | Loads 64-bit Windows DLLs into a Linux process and provides the Windows functions they use |
 | `dts-eagle` | Safe interface to the DTS engine; reads Acer's tuning configuration |
 | `importer` | Detects the sound chip; sets up the DTS files from Acer's package |
+| `dts-spatial` | Windows' spatial sound encoder (DTS:X Ultra / Headphone:X), loaded natively |
 | `audio-graph` | The Windows signal chain: an engine per app, mix, mode engine, loudness match |
 | `daemon` | `acerultrax-daemon`: PipeWire routing, device following, profiles, control socket |
 | `cli` | `acerultrax-cli` |
