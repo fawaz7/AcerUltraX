@@ -48,3 +48,12 @@ window.aux { background: @bg; color: @text; font-family: Inter, Cantarell, sans-
 .aux scale highlight { background: @accent; }
 .aux scale slider { background: @text; border-radius: 50%; }
 .aux button.outline:not(:checked) { background: none; }
+.aux .primary { background: @accent; color: @bg; border: none; border-radius: 10px; min-height: 44px; padding: 0 22px; font-weight: 700; box-shadow: none; }
+.aux .primary:hover { background: #4ddcf1; }
+.aux .primary:disabled { background: @raised; color: @muted; }
+.aux .link { background: none; border: none; box-shadow: none; color: @accent; padding: 0 2px; min-height: 0; font-weight: 600; }
+.aux .link:hover label { text-decoration-line: underline; }
+.aux .chip.warn { background: #2a2310; color: #fbbf24; }
+.aux progressbar trough { background: @line2; border-radius: 4px; min-height: 6px; }
+.aux progressbar progress { background: @accent; border-radius: 4px; min-height: 6px; }
+.aux separator { background: @line; }

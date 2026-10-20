@@ -38,6 +38,7 @@ libspa-sys = "0.10.1"
 pipewire-sys = "0.10.1"
 gtk = { package = "gtk4", version = "0.11.5", features = ["v4_12"] }
 ksni = { version = "0.3.6", default-features = false, features = ["async-io", "blocking"] }
+ureq = { version = "3.4.2", default-features = false, features = ["rustls"] }
 
 [profile.release]
 panic = "abort"

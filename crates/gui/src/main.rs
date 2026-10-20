@@ -387,6 +387,11 @@ fn settings_page() -> gtk::Box {
             Box::new(client::set_spatial_power_saving),
         ));
     }
+    if let (Ok(m), Some(c)) = (importer::Manifest::load(&importer::data_dir()), importer::laptop_codec()) {
+        if m.headphones == 0 && importer::download::covers(&c.ssid) {
+            page.append(&extras_card(c.ssid));
+        }
+    }
     page.append(&row(
         "Icon in the top bar",
         "Quick mode switching; keeps AcerUltraX in the top bar after you close this window",
@@ -394,6 +399,25 @@ fn settings_page() -> gtk::Box {
         Box::new(set_tray_autostart),
     ));
     page
+}
+
+/// Offer the DTS app download when setup skipped it.
+fn extras_card(ssid: String) -> gtk::Box {
+    let card = vbox(10);
+    card.add_css_class("card");
+    card.append(&label("Headphone models and spatial sound", &[]));
+    card.append(&label(
+        "Not set up yet. Adds over 500 headphone models to pick from, and Windows' spatial sound for games and \
+         films, downloaded from Acer.",
+        &["muted", "small"],
+    ));
+    card.append(&wizard::download_panel(ssid, wizard::Extras::Always, |_| {
+        let cli = std::env::current_exe()
+            .map(|e| e.with_file_name("acerultrax-cli"))
+            .unwrap_or_else(|_| "acerultrax-cli".into());
+        let _ = std::process::Command::new(cli).arg("restart").status();
+    }));
+    card
 }
 
 /// One button per user profile, in the same group as the mode buttons; rebuilt when the profiles change.
@@ -651,7 +675,8 @@ fn snapshot_and_quit(app: &gtk::Application, window: &gtk::ApplicationWindow, pa
         }
     }
     let (app, window) = (app.clone(), window.clone());
-    glib::timeout_add_local_once(Duration::from_millis(1500), move || {
+    let delay = std::env::var("ACERULTRAX_SNAPSHOT_DELAY").ok().and_then(|d| d.parse().ok()).unwrap_or(1500);
+    glib::timeout_add_local_once(Duration::from_millis(delay), move || {
         let paintable = gtk::WidgetPaintable::new(Some(&window));
         let (w, h) = (window.width() as f64, window.height() as f64);
         let snap = gtk::Snapshot::new();

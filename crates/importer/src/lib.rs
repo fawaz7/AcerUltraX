@@ -13,6 +13,7 @@
 //! Sources can be folders or Acer's zip downloads, as they are.
 
 mod detect;
+pub mod download;
 pub mod headphones;
 mod sources;
 pub mod spatial;
@@ -204,7 +205,7 @@ pub fn import(srcs: &[PathBuf], ssid: &str, data_dir: &Path) -> Result<Manifest,
     let headphones = match headphones::import(&files, &staging) {
         Ok(n) => n,
         Err(e) => {
-            log::warn!("headphone models not imported: {e}");
+            log::info!("headphone models not imported: {e}");
             0
         }
     };

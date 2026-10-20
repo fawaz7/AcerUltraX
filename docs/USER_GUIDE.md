@@ -16,19 +16,28 @@ default on current Fedora, Ubuntu, Debian, openSUSE and Arch.
 
 ## First start
 
-Open **AcerUltraX** from your applications. The first time, it walks you through setup:
+Open **AcerUltraX** from your applications. The first time, it shows your laptop and whether it is supported,
+then:
 
-1. It shows your laptop and whether it is supported. The Predator Helios 16 (PH16-71) is verified against
-   Windows; other Acer laptops with DTS:X Ultra should work too, but have not been checked yet. If you have one,
-   please [tell us how it works](https://github.com/fawaz7/AcerUltraX/issues).
-2. It opens Acer's support page. Search for your laptop and download:
-   - **Driver → Audio: "XPERI DTS"** (the DTS engine and your laptop's tuning; required);
-   - **Application: "XPERI DTS Utility"** (headphone models; take both versions if two are listed).
-   Do not unzip them.
-3. Click **Set up AcerUltraX**. It finds the downloads in your Downloads folder, sets everything up in a few
-   seconds and starts DTS. From now on it starts with your session.
+1. Leave **Headphone models and spatial sound** on, unless your internet is slow (it adds 386 MB; you can add it
+   later under Settings).
+2. Click **Download and set up**. AcerUltraX downloads your laptop's DTS files directly from Acer, keeps only what
+   it uses (about 20 MB) and starts DTS. From now on it starts with your session.
 
-AcerUltraX does not include any Acer or DTS files: it uses the ones you download for your own laptop.
+If the download is interrupted, click it again: it carries on where it stopped.
+
+The Predator Helios 16 (PH16-71) is verified against Windows; about 160 other Acer laptops with DTS:X Ultra should
+work too, but have not been checked yet. If you have one, please
+[tell us how it works](https://github.com/fawaz7/AcerUltraX/issues).
+
+**If your laptop is not in Acer's package** (or you have no internet on the laptop), the setup window shows the
+other way: on Acer's support page, download **Driver → Audio: "XPERI DTS"** and **Application: "XPERI DTS
+Utility"**, leave them zipped, and click **Set up**. It finds them in your Downloads folder. (**I already have
+Acer's files** shows this too.)
+
+From the command line: `acerultrax-cli setup`.
+
+AcerUltraX does not include any Acer or DTS files: it downloads them from Acer, for your own laptop.
 
 ## Everyday use
 
@@ -46,7 +55,7 @@ AcerUltraX does not include any Acer or DTS files: it uses the ones you download
 
 Like Windows' "Spatial sound: DTS:X Ultra", AcerUltraX can place 5.1 and 7.1 sound (games, films) around you:
 DTS:X Ultra on the laptop speakers, DTS Headphone:X on headphones. Turn it on per device with the **Spatial
-sound** switch on the Sound page (it appears once the "XPERI DTS Utility" 2023 download is set up). Stereo
+sound** switch on the Sound page (it appears once "Headphone models and spatial sound" is set up). Stereo
 sound is not changed by it, as on Windows. Settings → "Spatial sound: save power" uses DTS's lighter presets
 (Windows' "Best power").
 
@@ -87,6 +96,7 @@ acerultrax-cli headphones hyperx # search headphone models
 acerultrax-cli spatial on        # spatial sound for 5.1/7.1 on the current output
 acerultrax-cli power off         # plain sound everywhere (power on to return)
 acerultrax-cli autostart off     # stop starting with the session
+acerultrax-cli setup             # download from Acer and set up again (e.g. to add headphone models)
 ```
 
 ## Troubleshooting

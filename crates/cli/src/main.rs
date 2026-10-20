@@ -24,6 +24,12 @@ struct Cli {
 enum Command {
     /// Show the laptop's sound chip and whether AcerUltraX supports it.
     Detect,
+    /// Set up everything in one go: download Acer's DTS files for this laptop from Acer and import them.
+    Setup {
+        /// Skip the DTS app download (385 MB; adds headphone models and spatial sound).
+        #[arg(long)]
+        no_extras: bool,
+    },
     /// Set up the DTS files from Acer's downloads for your laptop: the DTS driver ("XPERI DTS") and, for
     /// headphone models, the DTS app ("XPERI DTS Utility"). Zip files or extracted folders.
     Import {
@@ -70,6 +76,8 @@ enum Command {
     Compare { state: OnOff },
     /// Start AcerUltraX with your session (on), or stop doing so (off).
     Autostart { state: OnOff },
+    /// Restart the background service (it then loads newly set-up files).
+    Restart,
     /// Process a WAV file through the DTS chain, as Windows does for one app (1, 2, 6 or 8 channels in, stereo out).
     Render {
         input: PathBuf,
@@ -110,6 +118,7 @@ fn main() -> Result<()> {
     let data = cli.data_dir.unwrap_or_else(importer::data_dir);
     match cli.command {
         Command::Detect => detect(),
+        Command::Setup { no_extras } => setup(!no_extras, &data),
         Command::Import { sources, ssid } => import(&sources, ssid, &data),
         Command::Status => status(&data),
         Command::Mode { name, device } => {
@@ -171,6 +180,12 @@ fn main() -> Result<()> {
         }
         Command::Autostart { state: OnOff::On } => autostart::enable(),
         Command::Autostart { state: OnOff::Off } => autostart::disable(),
+        Command::Restart => {
+            if !autostart::restart()? {
+                println!("The service is not running as a systemd user service; log out and back in to restart it.");
+            }
+            Ok(())
+        }
         Command::Spatial { state, device } => {
             daemon(json!({"cmd": "spatial", "on": matches!(state, OnOff::On), "device": device})).map(|_| ())
         }
@@ -215,6 +230,37 @@ fn detect() -> Result<()> {
     Ok(())
 }
 
+fn setup(extras: bool, data: &Path) -> Result<()> {
+    use std::io::Write;
+    let c = importer::laptop_codec().context("no Acer sound chip found; AcerUltraX needs an Acer laptop with DTS")?;
+    if !importer::download::covers(&c.ssid) {
+        bail!(
+            "Acer's DTS package has no tuning for sound chip {} yet. If Acer's support page lists \"XPERI DTS\" \
+             for your laptop, download it and run `acerultrax-cli import <file>`.",
+            c.ssid
+        );
+    }
+    let cancel = std::sync::atomic::AtomicBool::new(false);
+    let mut last = u64::MAX;
+    let m = importer::download::setup(&c.ssid, data, extras, &cancel, &mut |s| match s {
+        importer::download::Stage::Downloading { done, total } => {
+            let mb = done >> 20;
+            if mb != last {
+                last = mb;
+                print!("\rDownloading from Acer: {mb} of {} MB", total >> 20);
+                let _ = std::io::stdout().flush();
+            }
+        }
+        importer::download::Stage::Importing => println!("\nSetting up…"),
+    })?;
+    report(&m, data);
+    // A running service loads the new files.
+    if autostart::restart()? {
+        println!("Restarted the AcerUltraX service.");
+    }
+    Ok(())
+}
+
 fn import(sources: &[PathBuf], ssid: Option<String>, data: &Path) -> Result<()> {
     let ssid = match ssid {
         Some(s) => s,
@@ -222,6 +268,11 @@ fn import(sources: &[PathBuf], ssid: Option<String>, data: &Path) -> Result<()> 
     };
     std::fs::create_dir_all(data).with_context(|| format!("creating {}", data.display()))?;
     let m = importer::import(sources, &ssid, data)?;
+    report(&m, data);
+    Ok(())
+}
+
+fn report(m: &Manifest, data: &Path) {
     println!("Imported DTS tuning for {} ({}) into {}", m.ssid, support_text(&m.ssid), data.display());
     println!("{} tuning files", m.files.len());
     match m.headphones {
@@ -234,7 +285,6 @@ fn import(sources: &[PathBuf], ssid: Option<String>, data: &Path) -> Result<()> 
     if !m.engine_verified {
         println!("Note: this dtstech64.dll build has not been verified with AcerUltraX yet.");
     }
-    Ok(())
 }
 
 fn status(data: &Path) -> Result<()> {

@@ -12,8 +12,8 @@ Windows does, sample for sample.
 
 ## Install
 
-Arch Linux, CachyOS and other Arch-based systems: `yay -S acerultrax-git`. Then open **AcerUltraX**; a short
-setup takes you through getting the DTS files from Acer. See the **[user guide](docs/USER_GUIDE.md)**.
+Arch Linux, CachyOS and other Arch-based systems: `yay -S acerultrax-git`. Then open **AcerUltraX** and click
+**Download and set up**: it fetches your laptop's DTS files from Acer and is ready in about a minute. See the **[user guide](docs/USER_GUIDE.md)**.
 
 ## Supported laptops
 
@@ -29,8 +29,9 @@ are just as useful as bug reports.
 
 ## How it works
 
-- AcerUltraX contains **no DTS or Acer files**. You provide Acer's own driver package for your laptop, and
-  AcerUltraX loads the DTS engine from it with a small built-in loader for Windows libraries.
+- AcerUltraX contains **no DTS or Acer files**. On first start it downloads Acer's own driver package for your
+  laptop straight from Acer's download server (checked against known checksums), keeps the few files it uses and
+  deletes the rest. It loads the DTS engine from them with a small built-in loader for Windows libraries.
 - It applies the same factory settings Windows does, from Acer's tuning files for your laptop.
 - It contains no licence checks. The DTS engine checks none on Linux either: on Windows, licensing lives in
   other parts of the DTS software, which AcerUltraX does not use.
@@ -44,11 +45,11 @@ cargo build --release
 ./target/release/acerultrax-cli detect          # shows your sound chip and whether it is supported
 ```
 
-From Acer's support site for your laptop, download the DTS driver ("XPERI DTS") and, for headphone models,
-the DTS app ("XPERI DTS Utility"; both versions if offered). No need to unzip them:
+Download Acer's DTS files from Acer and set them up (`--no-extras` skips the 386 MB DTS app that adds headphone
+models and spatial sound). Already downloaded them? `acerultrax-cli import ~/Downloads/XPERI*DTS*.zip`.
 
 ```sh
-./target/release/acerultrax-cli import ~/Downloads/XPERI*DTS*.zip
+./target/release/acerultrax-cli setup
 ./target/release/acerultrax-cli status
 ./target/release/acerultrax-cli render song.wav song-dts.wav --mode movie --output-device speakers
 ```
@@ -122,7 +123,7 @@ See [docs/TESTING.md](docs/TESTING.md). The code is split into crates under `cra
 
 AcerUltraX is an independent project, not affiliated with or endorsed by Acer, DTS or Xperi. DTS and DTS:X are
 trademarks of DTS, Inc.; Acer and Predator are trademarks of Acer Inc. AcerUltraX does not include or
-redistribute their software: it uses the copy you obtain from Acer for your own laptop.
+redistribute their software: it downloads it from Acer, on your machine, for your own laptop.
 
 ## Licence
 

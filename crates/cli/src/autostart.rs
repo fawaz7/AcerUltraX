@@ -71,6 +71,17 @@ pub fn enable() -> Result<()> {
     Ok(())
 }
 
+/// Restart a running service so it loads newly set-up files. Returns whether it was restarted.
+pub fn restart() -> Result<bool> {
+    if systemd_user()
+        && Command::new("systemctl").args(["--user", "is-active", "--quiet", UNIT]).status().is_ok_and(|s| s.success())
+    {
+        systemctl(&["restart", UNIT])?;
+        return Ok(true);
+    }
+    Ok(false)
+}
+
 pub fn disable() -> Result<()> {
     if systemd_user() {
         systemctl(&["disable", "--now", UNIT])?;
