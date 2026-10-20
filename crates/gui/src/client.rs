@@ -38,6 +38,31 @@ pub fn set_compare(on: bool) {
     let _ = request(json!({"cmd": "compare", "on": on}));
 }
 
+/// Every profile (built-in and the user's), with mode and adjustments.
+pub fn profiles_full() -> Vec<Value> {
+    request(json!({"cmd": "profiles"})).ok().and_then(|v| v.as_array().cloned()).unwrap_or_default()
+}
+
+pub fn save_profile(p: &Value) -> Result<(), String> {
+    request(json!({"cmd": "save-profile", "profile": p})).map(|_| ()).map_err(|e| e.to_string())
+}
+
+pub fn delete_profile(name: &str) {
+    let _ = request(json!({"cmd": "delete-profile", "name": name}));
+}
+
+pub fn mode_defaults(mode: &str) -> Value {
+    request(json!({"cmd": "mode-defaults", "mode": mode})).unwrap_or(Value::Null)
+}
+
+/// The measured response of a profile on the current output: (Hz, dB) points.
+pub fn response(p: &Value) -> Vec<(f64, f64)> {
+    request(json!({"cmd": "response", "profile": p}))
+        .ok()
+        .and_then(|v| v.as_array().map(|a| a.iter().filter_map(|x| Some((x[0].as_f64()?, x[1].as_f64()?))).collect()))
+        .unwrap_or_default()
+}
+
 /// Profile names the service knows.
 pub fn profiles() -> Vec<String> {
     request(json!({"cmd": "profiles"}))

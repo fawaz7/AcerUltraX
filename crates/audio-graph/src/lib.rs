@@ -9,13 +9,17 @@
 //! [`Chain::process`] runs on the audio thread. Mode changes are prepared off it with [`Prepared::build`] and
 //! swapped in with [`Chain::set_mode`]; a new stream's engine is created from the mode's tuning blob (about 1 ms).
 
+mod eq;
 mod loudness;
+mod response;
 
 use std::collections::HashMap;
 
 use dts_eagle::{Blob, Engine, Library, Location, MAX_BLOCK, ModeTuning};
 
+pub use eq::{BANDS as EQ_BANDS, Eq};
 pub use loudness::LoudnessMatch;
+pub use response::response;
 
 /// Largest block [`Chain::process`] handles in one call.
 pub const MAX_FRAMES: usize = 8192;
@@ -25,14 +29,22 @@ pub struct Prepared {
     rate: u32,
     sfx_blob: Blob,
     mfx: Engine,
+    /// The user's equaliser after DTS, if the profile has one.
+    eq: Option<Eq>,
 }
 
 impl Prepared {
     /// Configure a mode for `rate` (slow: reads tuning files; call off the audio thread).
-    pub fn build(lib: &'static Library, tuning: &ModeTuning, rate: u32) -> Result<Prepared, dts_eagle::Error> {
+    /// `eq`: equaliser gains in tenths of a dB per band ([`EQ_BANDS`]), applied after DTS.
+    pub fn build(
+        lib: &'static Library,
+        tuning: &ModeTuning,
+        rate: u32,
+        eq: Option<[i32; 10]>,
+    ) -> Result<Prepared, dts_eagle::Error> {
         let (mut sfx, _) = dts_eagle::configured_engine(lib, tuning, Location::Sfx, 2, rate)?;
         let (mfx, _) = dts_eagle::configured_engine(lib, tuning, Location::Mfx, 2, rate)?;
-        Ok(Prepared { rate, sfx_blob: sfx.tuning_blob(), mfx })
+        Ok(Prepared { rate, sfx_blob: sfx.tuning_blob(), mfx, eq: eq.map(|g| Eq::new(g, rate)) })
     }
 
     pub fn rate(&self) -> u32 {
@@ -196,6 +208,9 @@ impl Chain {
             m[1][..k].copy_from_slice(&r[off..off + k]);
             let (lo, ro) = (&mut l[off..off + k], &mut r[off..off + k]);
             let _ = mode.mfx.process(&[&m[0][..k], &m[1][..k]], &mut [lo, ro]);
+        }
+        if let Some(eq) = &mut mode.eq {
+            eq.process(l, r);
         }
         if self.match_loudness {
             self.matcher.process(rate, dry_l, dry_r, l, r);

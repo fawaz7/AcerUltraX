@@ -11,6 +11,7 @@ repository.workspace = true
 [dependencies]
 dts-eagle.workspace = true
 log.workspace = true
+rustfft.workspace = true
 
 [dev-dependencies]
 env_logger.workspace = true

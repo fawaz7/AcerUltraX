@@ -2,6 +2,7 @@
 //! background service; this only shows and changes its state, so closing it never affects the sound.
 
 mod client;
+mod profiles;
 mod tray;
 
 use std::cell::{Cell, RefCell};
@@ -25,7 +26,7 @@ const MODES: [(&str, &str, &str); 8] = [
     ("Game3", "Game 3", "Game preset 3"),
     ("Voice", "Voice", "For calls and speech"),
     ("Custom Audio", "Custom", "Acer's custom preset"),
-    ("Off", "Off", "Plain sound, no DTS"),
+    ("Off", "Off", "DTS neutral, speakers protected"),
 ];
 
 fn config_dir() -> PathBuf {
@@ -81,6 +82,10 @@ struct Ui {
     power: gtk::Switch,
     grid: gtk::Grid,
     modes: Vec<(String, gtk::ToggleButton)>,
+    /// Buttons for the user's own profiles on the Sound page, and the names they were made for.
+    mine_title: gtk::Label,
+    mine: gtk::FlowBox,
+    mine_buttons: RefCell<Vec<(String, gtk::ToggleButton)>>,
     compare: gtk::ToggleButton,
     devices_box: gtk::Box,
     devices_seen: RefCell<Value>,
@@ -95,6 +100,8 @@ struct SoundPage {
     chip: gtk::Label,
     power: gtk::Switch,
     grid: gtk::Grid,
+    mine_title: gtk::Label,
+    mine: gtk::FlowBox,
     compare: gtk::ToggleButton,
 }
 
@@ -141,6 +148,15 @@ fn sound_page(ui_modes: &mut Vec<(String, gtk::ToggleButton)>) -> SoundPage {
         ui_modes.push((profile.to_string(), b));
     }
     page.append(&grid);
+    let mine_title = label("Your profiles", &["h2"]);
+    let mine = gtk::FlowBox::new();
+    mine.set_selection_mode(gtk::SelectionMode::None);
+    mine.set_column_spacing(12);
+    mine.set_row_spacing(12);
+    mine.set_max_children_per_line(4);
+    mine.set_homogeneous(true);
+    page.append(&mine_title);
+    page.append(&mine);
 
     let card = hbox(12);
     card.add_css_class("card");
@@ -159,7 +175,7 @@ fn sound_page(ui_modes: &mut Vec<(String, gtk::ToggleButton)>) -> SoundPage {
         "Volume: use your system's volume control as usual. It applies after DTS, as on Windows.",
         &["muted", "small"],
     ));
-    SoundPage { page, device, chip, power, grid, compare }
+    SoundPage { page, device, chip, power, grid, mine_title, mine, compare }
 }
 
 fn devices_page() -> (gtk::Box, gtk::Box) {
@@ -350,6 +366,42 @@ fn settings_page() -> gtk::Box {
     page
 }
 
+/// One button per user profile, in the same group as the mode buttons; rebuilt when the profiles change.
+fn fill_mine(ui: &Rc<Ui>) {
+    let names: Vec<String> = client::profiles_full()
+        .iter()
+        .filter_map(|p| p["name"].as_str().map(String::from))
+        .filter(|n| !profiles::is_builtin(n))
+        .collect();
+    if ui.mine_buttons.borrow().iter().map(|(n, _)| n).eq(names.iter()) {
+        return;
+    }
+    while let Some(c) = ui.mine.first_child() {
+        ui.mine.remove(&c);
+    }
+    let mut v = Vec::new();
+    for n in names {
+        let inner = vbox(6);
+        inner.append(&label(&n, &["name"]));
+        inner.append(&label("Your profile", &["muted", "small"]));
+        let b = gtk::ToggleButton::new();
+        b.set_child(Some(&inner));
+        b.add_css_class("mode");
+        b.set_group(ui.modes.first().map(|m| &m.1));
+        let (ui2, name) = (ui.clone(), n.clone());
+        b.connect_toggled(move |b| {
+            if b.is_active() && !ui2.updating.get() {
+                client::set_profile(&name, None);
+            }
+        });
+        ui.mine.insert(&b, -1);
+        v.push((n, b));
+    }
+    ui.mine_title.set_visible(!v.is_empty());
+    ui.mine.set_visible(!v.is_empty());
+    *ui.mine_buttons.borrow_mut() = v;
+}
+
 fn refresh(ui: &Rc<Ui>) {
     let st = client::status();
     ui.updating.set(true);
@@ -366,7 +418,7 @@ fn refresh(ui: &Rc<Ui>) {
             let on = enabled && s["mode"].as_str().is_some();
             let apps = s["streams"].as_u64().unwrap_or(0);
             ui.chip.set_text(&if on {
-                format!("DTS:X Ultra on · {apps} apps")
+                format!("DTS:X Ultra on · {apps} app{}", if apps == 1 { "" } else { "s" })
             } else if enabled {
                 "DTS off for this device".into()
             } else {
@@ -377,10 +429,12 @@ fn refresh(ui: &Rc<Ui>) {
             } else {
                 ui.chip.add_css_class("off")
             }
-            for (p, b) in &ui.modes {
-                if p == profile {
-                    b.set_active(true);
-                }
+            fill_mine(ui);
+            let buttons = ui.mine_buttons.borrow();
+            let all = ui.modes.iter().chain(buttons.iter());
+            match all.clone().find(|(p, _)| p == profile) {
+                Some((_, b)) => b.set_active(true),
+                None => all.for_each(|(_, b)| b.set_active(false)),
             }
             ui.compare.set_active(s["compare"].as_bool() == Some(true));
             ui.compare.set_label(if ui.compare.is_active() { "Hearing plain" } else { "Compare" });
@@ -399,18 +453,22 @@ fn refresh(ui: &Rc<Ui>) {
     }
     ui.updating.set(false);
     if let Some(t) = &ui.tray {
-        let (device, profile, compare) = match &st {
+        let (device, profile, compare, enabled) = match &st {
             Some(s) => (
-                s["device_name"].as_str().map(String::from),
+                s["device_name"].as_str().map(|n| friendly_name(s["kind"].as_str().unwrap_or(""), n)),
                 s["profile"].as_str().map(String::from),
                 s["compare"].as_bool() == Some(true),
+                s["enabled"].as_bool() != Some(false),
             ),
-            None => (None, None, false),
+            None => (None, None, false, false),
         };
+        let mine: Vec<String> = ui.mine_buttons.borrow().iter().map(|(n, _)| n.clone()).collect();
         t.update(move |t| {
             t.device = device;
             t.profile = profile;
             t.compare = compare;
+            t.enabled = enabled;
+            t.mine = mine;
         });
     }
 }
@@ -428,11 +486,12 @@ fn model_text() -> String {
 
 fn build_window(app: &gtk::Application, tray: Option<ksni::blocking::Handle<tray::AuxTray>>) -> gtk::ApplicationWindow {
     let mut modes = Vec::new();
-    let SoundPage { page: sound, device, chip, power, grid, compare } = sound_page(&mut modes);
+    let SoundPage { page: sound, device, chip, power, grid, mine_title, mine, compare } = sound_page(&mut modes);
     let (devices, devices_box) = devices_page();
     let stack = gtk::Stack::new();
     stack.set_hexpand(true);
     stack.add_named(&sound, Some("sound"));
+    stack.add_named(&profiles::page(), Some("profiles"));
     stack.add_named(&devices, Some("devices"));
     stack.add_named(&settings_page(), Some("settings"));
 
@@ -443,7 +502,7 @@ fn build_window(app: &gtk::Application, tray: Option<ksni::blocking::Handle<tray
     brand.set_markup("Acer<span foreground=\"#22d3ee\">UltraX</span>");
     side.append(&brand);
     let mut group: Option<gtk::ToggleButton> = None;
-    for (id, text) in [("sound", "Sound"), ("devices", "Devices"), ("settings", "Settings")] {
+    for (id, text) in [("sound", "Sound"), ("profiles", "Profiles"), ("devices", "Devices"), ("settings", "Settings")] {
         let b = gtk::ToggleButton::with_label(text);
         b.add_css_class("nav");
         if let Some(l) = b.child().and_then(|c| c.downcast::<gtk::Label>().ok()) {
@@ -479,6 +538,9 @@ fn build_window(app: &gtk::Application, tray: Option<ksni::blocking::Handle<tray
         power,
         grid,
         modes,
+        mine_title,
+        mine,
+        mine_buttons: RefCell::new(Vec::new()),
         compare,
         devices_box,
         devices_seen: RefCell::new(Value::Null),

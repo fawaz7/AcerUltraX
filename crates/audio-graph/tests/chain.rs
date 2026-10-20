@@ -44,7 +44,7 @@ fn per_stream_engines_mix_then_mfx() {
                 layouts.iter().map(|&(id, ch)| (0..ch).map(|c| signal(n, id * 10 + c as u32)).collect()).collect();
 
             // Reference: each stream through its own SFX engine, summed, then MFX.
-            let prepared = Prepared::build(lib, &tuning, rate).unwrap();
+            let prepared = Prepared::build(lib, &tuning, rate, None).unwrap();
             let (mut sfx2, _) = dts_eagle::configured_engine(lib, &tuning, Location::Sfx, 2, rate).unwrap();
             let blob = sfx2.tuning_blob();
             let mut mix = vec![vec![0f32; n]; 2];
@@ -124,7 +124,7 @@ fn idle_streams_rest_and_resume() {
         .spawn(move || {
             let rate = 48000;
             let mut chain = Chain::new(lib);
-            chain.set_mode(Prepared::build(lib, &tuning, rate).unwrap());
+            chain.set_mode(Prepared::build(lib, &tuning, rate, None).unwrap());
             let zeros = vec![0f32; 1024];
             let tone = signal(1024, 3);
             let (mut l, mut r) = (vec![0f32; 1024], vec![0f32; 1024]);
@@ -143,6 +143,41 @@ fn idle_streams_rest_and_resume() {
                 run(&tone, &mut l, &mut r);
             }
             assert!(l.iter().any(|&x| x.abs() > 1e-3), "sound after a pause is processed again");
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+}
+
+/// The measured response: headphone Off is flat (speaker Off is not: Acer's speaker protection filter cuts the
+/// bass there); Music changes the response.
+#[test]
+fn measured_response() {
+    let Some(vendor) = std::env::var_os("ACERULTRAX_VENDOR_DIR").map(PathBuf::from) else {
+        eprintln!("skipped: set ACERULTRAX_VENDOR_DIR");
+        return;
+    };
+    let lib = Library::load(&vendor.join("dtstech64.dll"), Some(&vendor)).unwrap();
+    let xml = std::fs::read_dir(&vendor)
+        .unwrap()
+        .flatten()
+        .map(|e| e.path())
+        .find(|p| p.file_name().unwrap().to_string_lossy().starts_with("dts_apo4_oem_config_"))
+        .unwrap();
+    let oem = OemConfig::parse(&std::fs::read_to_string(xml).unwrap()).unwrap();
+    let (off, music) = (
+        oem.tuning(Mode::Off, Output::Headphones).unwrap().clone(),
+        oem.tuning(Mode::Music, Output::Headphones).unwrap().clone(),
+    );
+    std::thread::Builder::new()
+        .stack_size(8 << 20)
+        .spawn(move || {
+            let flat = audio_graph::response(lib, &off, 48000, None).unwrap();
+            assert!(flat.len() > 50);
+            let worst = flat.iter().map(|p| p.1.abs()).fold(0f32, f32::max);
+            assert!(worst < 1.0, "Off should be flat, worst deviation {worst} dB");
+            let m = audio_graph::response(lib, &music, 48000, None).unwrap();
+            assert!(m.iter().zip(&flat).any(|(a, b)| (a.1 - b.1).abs() > 2.0), "Music changes the response");
         })
         .unwrap()
         .join()

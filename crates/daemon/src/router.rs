@@ -169,6 +169,7 @@ struct Build {
     rate: u32,
     /// Headphone EQ files (48k, 44k) replacing Acer's default headphone EQ.
     eq: Option<[String; 2]>,
+    tweaks: crate::config::Tweaks,
 }
 
 fn prop<'a>(d: &'a DictRef, k: &str) -> Option<&'a str> {
@@ -715,7 +716,7 @@ impl Router {
                 r => r,
             };
             let eq = self.headphone_for(n, kind).map(|(h, route)| [h.eq_file(route, "48k"), h.eq_file(route, "44k")]);
-            let b = Build { mode, tuning: kind.tuning(), rate, eq };
+            let b = Build { mode, tuning: kind.tuning(), rate, eq, tweaks: profile.tweaks.clone() };
             if self.built.as_ref() != Some(&b) {
                 self.build(b);
             }
@@ -787,17 +788,11 @@ impl Router {
         }
     }
 
-    /// Prepare a mode's engines on a worker thread; the audio thread picks them up.
-    fn build(&mut self, b: Build) {
-        self.built = Some(b.clone());
-        let Build { mode, tuning, rate, eq } = b;
-        if !dts_eagle::RATES.contains(&rate) {
-            log::warn!("DTS cannot run at {rate} Hz; passing audio through");
-            return;
-        }
-        let Some(mut t) = self.oem.tuning(mode, tuning).cloned() else { return };
-        if let Some([e48, e44]) = &eq {
-            // As Windows does when a headphone model is picked: its EQ replaces the default headphone EQ.
+    /// The engine settings for a build: the mode's factory tuning, the headphone model's EQ in place of Acer's
+    /// default (as Windows does when a model is picked), then the profile's adjustments.
+    fn tuning_for(&self, b: &Build) -> Option<dts_eagle::ModeTuning> {
+        let mut t = self.oem.tuning(b.mode, b.tuning).cloned()?;
+        if let Some([e48, e44]) = &b.eq {
             for s in &mut t.settings {
                 match s.name.as_str() {
                     "Eagle-HPEQ Blob 48k" => s.value = e48.clone(),
@@ -806,9 +801,86 @@ impl Router {
                 }
             }
         }
+        b.tweaks.apply(&mut t);
+        Some(t)
+    }
+
+    pub fn lib(&self) -> &'static dts_eagle::Library {
+        self.lib
+    }
+
+    /// What to measure for the response curve of `profile` on the current output: engine settings and rate,
+    /// or `None` for plain sound (a flat line).
+    #[allow(clippy::type_complexity)]
+    pub fn response_job(
+        &self,
+        profile: &Profile,
+    ) -> Result<Option<(dts_eagle::ModeTuning, u32, Option<[i32; 10]>)>, String> {
+        let n = self.target.and_then(|t| self.nodes.get(&t)).ok_or("no output device")?;
+        let kind = self.kind(n);
+        let Some(mode) = profile.dts_mode() else { return Ok(None) };
+        let eq = self.headphone_for(n, kind).map(|(h, route)| [h.eq_file(route, "48k"), h.eq_file(route, "44k")]);
+        let rate = match self.shared.rate.load(Ordering::Relaxed) {
+            r if dts_eagle::RATES.contains(&r) => r,
+            _ => 48000,
+        };
+        let b = Build { mode, tuning: kind.tuning(), rate, eq, tweaks: profile.tweaks.clone() };
+        Ok(Some((self.tuning_for(&b).ok_or("no tuning")?, rate, profile.tweaks.eq)))
+    }
+
+    /// A mode's factory values of the adjustable DTS controls on the current output (what an editor starts from).
+    pub fn mode_defaults(&self, mode: &str) -> Result<crate::config::Tweaks, String> {
+        let mode: dts_eagle::Mode = mode.parse().map_err(|_| format!("unknown mode {mode:?}"))?;
+        let kind = self.target.and_then(|t| self.nodes.get(&t)).map_or(Kind::Speakers, |n| self.kind(n));
+        let t = self.oem.tuning(mode, kind.tuning()).ok_or("no tuning")?;
+        let get = |loc, name: &str| t.engine_settings(loc).into_iter().rev().find(|(n, _)| n == name).map(|(_, v)| v);
+        let int = |loc, name: &str| get(loc, name).and_then(|v| v.parse::<i32>().ok());
+        let on = |loc, name: &str| int(loc, name).map(|v| v != 0);
+        use dts_eagle::Location::{Mfx, Sfx};
+        let level = |loc, enable: &str, name: &str| match on(loc, enable) {
+            Some(false) => Some(0),
+            _ => int(loc, name),
+        };
+        Ok(crate::config::Tweaks {
+            eq: None,
+            bass: level(Mfx, "Eagle-TBHDX Enable", "Eagle-TBHDX Bass Level"),
+            dialog: level(Sfx, "Eagle-DE Enable", "Eagle-DE Level"),
+            surround: on(Sfx, "Eagle-I3DA Enable"),
+            room: get(Sfx, "Eagle-I3DA Room Index")
+                .and_then(|v| crate::config::ROOMS.iter().find(|(_, e)| *e == v).map(|(k, _)| k.to_string())),
+            loudness: on(Sfx, "Eagle-LC Enable"),
+        })
+    }
+
+    pub fn save_profile(&mut self, p: Profile) -> Result<(), String> {
+        self.config.save_profile(p)?;
+        self.config.save();
+        self.apply_profile();
+        Ok(())
+    }
+
+    pub fn delete_profile(&mut self, name: &str) -> Result<(), String> {
+        if !self.config.delete_profile(name) {
+            return Err(format!("no profile of yours named {name:?}"));
+        }
+        self.config.save();
+        self.apply_profile();
+        Ok(())
+    }
+
+    /// Prepare a mode's engines on a worker thread; the audio thread picks them up.
+    fn build(&mut self, b: Build) {
+        self.built = Some(b.clone());
+        let (mode, tuning, rate) = (b.mode, b.tuning, b.rate);
+        if !dts_eagle::RATES.contains(&rate) {
+            log::warn!("DTS cannot run at {rate} Hz; passing audio through");
+            return;
+        }
+        let Some(t) = self.tuning_for(&b) else { return };
+        let eq = b.tweaks.eq;
         let (lib, shared) = (self.lib, self.shared.clone());
         let spawned = std::thread::Builder::new().name("dts-build".into()).stack_size(8 << 20).spawn(move || {
-            match audio_graph::Prepared::build(lib, &t, rate) {
+            match audio_graph::Prepared::build(lib, &t, rate, eq) {
                 Ok(p) => *shared.pending.lock().unwrap() = Some(p),
                 Err(e) => log::error!("cannot prepare {mode} ({tuning:?}, {rate} Hz): {e}"),
             }
@@ -817,8 +889,9 @@ impl Router {
             log::error!("cannot start a worker thread: {e}");
         }
         log::info!(
-            "mode {mode}, {tuning:?} tuning, {rate} Hz{}",
-            eq.map(|e| format!(", headphone EQ {}", e[0])).unwrap_or_default()
+            "mode {mode}, {tuning:?} tuning, {rate} Hz{}{}",
+            b.eq.as_ref().map(|e| format!(", headphone EQ {}", e[0])).unwrap_or_default(),
+            if b.tweaks.is_empty() { "" } else { ", adjusted" }
         );
     }
 

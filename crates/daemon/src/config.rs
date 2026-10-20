@@ -32,17 +32,82 @@ impl Kind {
     }
 }
 
-/// A sound profile. For now a DTS mode, or off.
+/// A sound profile: a DTS mode, optionally with the adjustments Windows' "Custom Audio" offers.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Profile {
     pub name: String,
-    /// DTS mode (`music`, `movie`, ...), or `off` for unprocessed sound.
+    /// DTS mode (`music`, `movie`, ...) it starts from, or `off` for unprocessed sound.
     pub mode: String,
+    #[serde(default, skip_serializing_if = "Tweaks::is_empty")]
+    pub tweaks: Tweaks,
+}
+
+/// Changes to a mode: the equaliser (AcerUltraX's, after DTS: the engine's own equaliser has no effect in this
+/// version) and the DTS engine's own controls. `None` keeps the mode's factory value.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[serde(default)]
+pub struct Tweaks {
+    /// 10-band equaliser gains in tenths of a dB (-150..=150), 31 Hz to 16 kHz.
+    pub eq: Option<[i32; 10]>,
+    /// Bass enhancement (DTS TruBass), 0 = off, 1..=100.
+    pub bass: Option<i32>,
+    /// Dialogue clarity, 0 = off, 1..=100.
+    pub dialog: Option<i32>,
+    /// Virtual surround on/off.
+    pub surround: Option<bool>,
+    /// Surround room: entertainment, game, sports, entertainment-2022.
+    pub room: Option<String>,
+    /// Loudness control (evens out loud and quiet parts).
+    pub loudness: Option<bool>,
+}
+
+/// Engine names of the surround rooms.
+pub const ROOMS: [(&str, &str); 4] = [
+    ("entertainment", "Eagle-I3DA Room Entertainment"),
+    ("game", "Eagle-I3DA Room Game"),
+    ("sports", "Eagle-I3DA Room Sports"),
+    ("entertainment-2022", "Eagle-I3DA Room Entertainment 2022"),
+];
+
+impl Tweaks {
+    pub fn is_empty(&self) -> bool {
+        *self == Tweaks::default()
+    }
+
+    /// Apply the DTS controls to a mode's factory settings (later settings win, so these go last). The equaliser
+    /// is not an engine setting.
+    pub fn apply(&self, t: &mut dts_eagle::ModeTuning) {
+        use dts_eagle::oem::{Setting, Stage};
+        let mut set = |stage, name: &str, value: String| t.settings.push(Setting { stage, name: name.into(), value });
+        let level = |v: i32| v.clamp(0, 100);
+        for (v, stage, enable, name) in [
+            (self.bass, Stage::Mfx, "Eagle-TBHDX Enable", "Eagle-TBHDX Bass Level"),
+            (self.dialog, Stage::Sfx, "Eagle-DE Enable", "Eagle-DE Level"),
+        ] {
+            if let Some(v) = v {
+                set(stage, enable, ((level(v) > 0) as i32).to_string());
+                if v > 0 {
+                    set(stage, name, level(v).to_string());
+                }
+            }
+        }
+        if let Some(on) = self.surround {
+            set(Stage::Sfx, "Eagle-I3DA Enable", (on as i32).to_string());
+        }
+        if let Some(room) = self.room.as_deref().and_then(|r| ROOMS.iter().find(|(k, _)| *k == r)) {
+            set(Stage::Sfx, "Eagle-I3DA Room Index", room.1.into());
+        }
+        if let Some(on) = self.loudness {
+            set(Stage::Sfx, "Eagle-LC Enable", (on as i32).to_string());
+        }
+    }
 }
 
 impl Profile {
+    /// The DTS mode to run; `None` for plain sound. (DTS's own "Off" mode still runs the engines: on the laptop
+    /// speakers it keeps Acer's speaker protection, as on Windows.)
     pub fn dts_mode(&self) -> Option<Mode> {
-        self.mode.parse().ok().filter(|m| *m != Mode::Off)
+        self.mode.parse().ok()
     }
 }
 
@@ -69,8 +134,8 @@ impl Default for Config {
             ("speakers", "Music"),
             ("headphones", "Music"),
             ("bluetooth", "Music"),
-            ("bluetooth-speaker", "Off"),
-            ("other", "Off"),
+            ("bluetooth-speaker", "Plain"),
+            ("other", "Plain"),
         ];
         Config {
             enabled: true,
@@ -82,13 +147,17 @@ impl Default for Config {
     }
 }
 
+/// Unprocessed sound.
+fn plain() -> Profile {
+    Profile { name: "Plain".into(), mode: "plain".into(), tweaks: Tweaks::default() }
+}
+
 pub fn builtin_profiles() -> Vec<Profile> {
     let mut v: Vec<Profile> = Mode::ALL
         .iter()
-        .filter(|m| **m != Mode::Off)
-        .map(|m| Profile { name: m.to_string(), mode: m.key().to_lowercase() })
+        .map(|m| Profile { name: m.to_string(), mode: m.key().to_lowercase(), tweaks: Tweaks::default() })
         .collect();
-    v.push(Profile { name: "Off".into(), mode: "off".into() });
+    v.push(plain());
     v
 }
 
@@ -108,10 +177,17 @@ impl Config {
     }
 
     pub fn load() -> Config {
-        std::fs::read_to_string(Self::path())
+        let mut c: Config = std::fs::read_to_string(Self::path())
             .ok()
             .and_then(|t| toml::from_str(&t).map_err(|e| log::warn!("config: {e}")).ok())
-            .unwrap_or_default()
+            .unwrap_or_default();
+        // Before "Plain" existed, "Off" meant unprocessed; keep that for outputs Windows never processed.
+        for k in ["other", "bluetooth-speaker"] {
+            if c.defaults.get(k).is_some_and(|v| v == "Off") {
+                c.defaults.insert(k.into(), "Plain".into());
+            }
+        }
+        c
     }
 
     pub fn save(&self) {
@@ -141,11 +217,33 @@ impl Config {
 
     /// The profile for a device: its own choice, else the default for its kind, else Off.
     pub fn profile_for(&self, device: &str, kind: Kind) -> Profile {
+        // A device's own choice may name a profile that was deleted since: then the default for its kind.
         self.devices
             .get(device)
-            .or_else(|| self.defaults.get(kind_key(kind)))
             .and_then(|n| self.profile(n))
-            .unwrap_or_else(|| Profile { name: "Off".into(), mode: "off".into() })
+            .or_else(|| self.defaults.get(kind_key(kind)).and_then(|n| self.profile(n)))
+            .unwrap_or_else(plain)
+    }
+
+    /// Add or replace a user profile. Built-in names are reserved; the mode must be a DTS mode.
+    pub fn save_profile(&mut self, p: Profile) -> Result<(), String> {
+        let name = p.name.trim();
+        if name.is_empty() || builtin_profiles().iter().any(|b| b.name.eq_ignore_ascii_case(name)) {
+            return Err(format!("{name:?} cannot be used as a profile name"));
+        }
+        if p.dts_mode().is_none() {
+            return Err(format!("{:?} is not a DTS mode", p.mode));
+        }
+        let p = Profile { name: name.to_string(), ..p };
+        self.profiles.retain(|x| !x.name.eq_ignore_ascii_case(&p.name));
+        self.profiles.push(p);
+        Ok(())
+    }
+
+    pub fn delete_profile(&mut self, name: &str) -> bool {
+        let before = self.profiles.len();
+        self.profiles.retain(|x| !x.name.eq_ignore_ascii_case(name));
+        before != self.profiles.len()
     }
 }
 
@@ -201,11 +299,46 @@ mod tests {
     use super::*;
 
     #[test]
+    fn tweaks_become_engine_settings() {
+        let mut t = dts_eagle::ModeTuning { mode: Mode::Music, output: dts_eagle::Output::Speakers, settings: vec![] };
+        let tw = Tweaks {
+            eq: Some([10, 0, 0, 0, 0, 0, 0, 0, 0, -200]),
+            bass: Some(0),
+            dialog: Some(60),
+            room: Some("game".into()),
+            ..Default::default()
+        };
+        tw.apply(&mut t);
+        let s: Vec<(String, String)> = t.engine_settings(dts_eagle::Location::Mfx).into_iter().skip(1).collect();
+        assert!(!s.iter().any(|(n, _)| n.contains("GEQ")), "the equaliser is not an engine setting");
+        assert!(s.contains(&("Eagle-TBHDX Enable".into(), "0".into())));
+        let sfx = t.engine_settings(dts_eagle::Location::Sfx);
+        assert!(sfx.contains(&("Eagle-DE Level".into(), "60".into())));
+        assert!(sfx.contains(&("Eagle-I3DA Room Index".into(), "Eagle-I3DA Room Game".into())));
+        assert!(Tweaks::default().is_empty());
+    }
+
+    #[test]
     fn profile_lookup() {
         let mut c = Config::default();
         assert_eq!(c.profile_for("bluez_output.x", Kind::Bluetooth).name, "Music");
         assert_eq!(c.profile_for("hdmi", Kind::Other).dts_mode(), None);
         assert_eq!(c.profile_for("bluez_output.speaker", Kind::BluetoothSpeaker).dts_mode(), None);
+        assert_eq!(c.profile("off").unwrap().dts_mode(), Some(Mode::Off), "DTS's Off mode runs the engines");
+        let mine = Profile {
+            name: "Night".into(),
+            mode: "movie".into(),
+            tweaks: Tweaks { bass: Some(10), ..Default::default() },
+        };
+        assert!(
+            c.save_profile(Profile { name: "music".into(), ..mine.clone() }).is_err(),
+            "built-in names are reserved"
+        );
+        c.save_profile(mine.clone()).unwrap();
+        c.devices.insert("spk".into(), "Night".into());
+        assert_eq!(c.profile_for("spk", Kind::Speakers), mine);
+        assert!(c.delete_profile("night"));
+        assert_eq!(c.profile_for("spk", Kind::Speakers).name, "Music", "falls back to the default for its kind");
         c.devices.insert("spk".into(), "movie".into());
         assert_eq!(c.profile_for("spk", Kind::Speakers).dts_mode(), Some(Mode::Movie));
         assert_eq!(c.profile("custom audio").unwrap().dts_mode(), Some(Mode::CustomAudio));

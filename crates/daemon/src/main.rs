@@ -81,7 +81,9 @@ fn main() -> Result<()> {
     let (tx, rx) = pipewire::channel::channel::<control::Request>();
     let r = router.clone();
     let _rx = rx.attach(mainloop.loop_(), move |(req, reply)| {
-        let _ = reply.send(control::handle(&mut r.borrow_mut(), &req));
+        if !control::start_response(&r.borrow(), &req, &reply) {
+            let _ = reply.send(control::handle(&mut r.borrow_mut(), &req));
+        }
     });
     control::serve(tx).context("cannot open the control socket")?;
 

@@ -40,3 +40,11 @@ window.aux { background: @bg; color: @text; font-family: Inter, Cantarell, sans-
 .aux dropdown > button { background: @bg; border: 2px solid @line2; border-radius: 10px; min-height: 40px; color: @text; }
 .aux switch:checked { background: @accent; }
 .aux popover contents, .aux popover arrow { background: @panel; color: @text; }
+.aux .profile-list { background: none; }
+.aux .profile-list row { border-radius: 10px; padding: 10px 12px; color: @muted; }
+.aux .profile-list row:selected { background: @raised; color: @text; }
+.aux entry.title-entry { font-size: 20px; font-weight: 600; background: @bg; border: 2px solid @line2; border-radius: 10px; color: @text; }
+.aux scale trough { background: @line2; border-radius: 4px; }
+.aux scale highlight { background: @accent; }
+.aux scale slider { background: @text; border-radius: 50%; }
+.aux button.outline:not(:checked) { background: none; }

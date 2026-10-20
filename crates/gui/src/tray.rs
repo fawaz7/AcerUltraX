@@ -6,7 +6,7 @@ use ksni::menu::{CheckmarkItem, MenuItem, RadioGroup, RadioItem, StandardItem};
 
 use crate::client;
 
-pub const MODES: [&str; 8] = ["Music", "Movie", "Game1", "Game2", "Game3", "Voice", "Custom Audio", "Off"];
+pub const MODES: [&str; 9] = ["Music", "Movie", "Game1", "Game2", "Game3", "Voice", "Custom Audio", "Off", "Plain"];
 
 #[derive(Default)]
 pub struct AuxTray {
@@ -14,6 +14,8 @@ pub struct AuxTray {
     pub profile: Option<String>,
     pub compare: bool,
     pub enabled: bool,
+    /// The user's own profiles, listed after the modes.
+    pub mine: Vec<String>,
 }
 
 fn open_window() {
@@ -51,7 +53,10 @@ impl ksni::Tray for AuxTray {
     }
 
     fn menu(&self) -> Vec<MenuItem<Self>> {
-        let selected = self.profile.as_deref().and_then(|p| MODES.iter().position(|m| *m == p)).unwrap_or(MODES.len());
+        let names: Vec<String> = MODES.iter().map(|m| m.to_string()).chain(self.mine.iter().cloned()).collect();
+        let selected = self.profile.as_deref().and_then(|p| names.iter().position(|m| m == p)).unwrap_or(names.len());
+        let options: Vec<RadioItem> =
+            names.iter().map(|m| RadioItem { label: client::label(m), ..Default::default() }).collect();
         vec![
             StandardItem {
                 label: self.device.clone().unwrap_or_else(|| "Service not running".into()),
@@ -73,10 +78,14 @@ impl ksni::Tray for AuxTray {
             RadioGroup {
                 selected,
                 select: Box::new(|t: &mut Self, i| {
-                    client::set_profile(MODES[i], None);
-                    t.profile = Some(MODES[i].to_string());
+                    let names: Vec<String> =
+                        MODES.iter().map(|m| m.to_string()).chain(t.mine.iter().cloned()).collect();
+                    if let Some(n) = names.get(i) {
+                        client::set_profile(n, None);
+                        t.profile = Some(n.clone());
+                    }
                 }),
-                options: MODES.iter().map(|m| RadioItem { label: client::label(m), ..Default::default() }).collect(),
+                options,
             }
             .into(),
             MenuItem::Separator,

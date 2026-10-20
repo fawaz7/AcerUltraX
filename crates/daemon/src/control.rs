@@ -3,6 +3,9 @@
 //! Requests: `{"cmd":"status"}`, `{"cmd":"profiles"}`, `{"cmd":"devices"}`,
 //! `{"cmd":"set-profile","name":"Movie"}` (optional `"device"`: a device's node name; default the current one),
 //! `{"cmd":"headphones"}` (models), `{"cmd":"set-headphone","id":"<model id>"|"default"|null,"device":...}`,
+//! `{"cmd":"save-profile","profile":{"name":..,"mode":..,"tweaks":{..}}}`, `{"cmd":"delete-profile","name":..}`,
+//! `{"cmd":"mode-defaults","mode":"movie"}` (factory values of the adjustable controls),
+//! `{"cmd":"response","profile":{..}}` (measured response curve: [[Hz, dB], ...]),
 //! `{"cmd":"enable","on":false}` (DTS everywhere), `{"cmd":"compare","on":true}`, `{"cmd":"reload"}`.
 
 use std::io::{BufRead, BufReader, Write};
@@ -52,6 +55,37 @@ pub fn serve(tx: pipewire::channel::Sender<Request>) -> std::io::Result<()> {
     Ok(())
 }
 
+/// Start a response-curve measurement (`{"cmd":"response","profile":{...}}` or `"name":...`) on a worker thread;
+/// it replies by itself. Returns false for other requests.
+pub fn start_response(r: &Router, req: &Value, reply: &mpsc::Sender<Value>) -> bool {
+    if req.get("cmd").and_then(Value::as_str) != Some("response") {
+        return false;
+    }
+    let profile = match (req.get("profile"), req.get("name").and_then(Value::as_str)) {
+        (Some(p), _) => serde_json::from_value(p.clone()).map_err(|e| format!("bad profile: {e}")),
+        (None, Some(n)) => r.config.profile(n).ok_or(format!("no profile named {n:?}")),
+        _ => Err("missing profile".into()),
+    };
+    let job = profile.and_then(|p| r.response_job(&p));
+    let (lib, reply) = (r.lib(), reply.clone());
+    let run = move || {
+        let v = match job {
+            Err(e) => json!({"ok": false, "error": e}),
+            Ok(None) => json!({"ok": true, "result": [[20.0, 0.0], [20000.0, 0.0]]}),
+            Ok(Some((t, rate, eq))) => match audio_graph::response(lib, &t, rate, eq) {
+                Ok(points) => json!({"ok": true, "result": points}),
+                Err(e) => json!({"ok": false, "error": e.to_string()}),
+            },
+        };
+        let _ = reply.send(v);
+    };
+    // DTS code needs a large stack.
+    if std::thread::Builder::new().name("dts-response".into()).stack_size(8 << 20).spawn(run).is_err() {
+        log::error!("cannot start a worker thread");
+    }
+    true
+}
+
 /// Handle one request on the main loop.
 pub fn handle(r: &mut Router, req: &Value) -> Value {
     let ok = |v: Value| json!({"ok": true, "result": v});
@@ -64,6 +98,19 @@ pub fn handle(r: &mut Router, req: &Value) -> Value {
             Some(n) => {
                 r.set_profile(n, req.get("device").and_then(Value::as_str)).map_or_else(err, |_| ok(Value::Null))
             }
+            None => err("missing name".into()),
+        },
+        "save-profile" => match req.get("profile").cloned().map(serde_json::from_value::<crate::config::Profile>) {
+            Some(Ok(p)) => r.save_profile(p).map_or_else(err, |_| ok(Value::Null)),
+            Some(Err(e)) => err(format!("bad profile: {e}")),
+            None => err("missing profile".into()),
+        },
+        "mode-defaults" => match req.get("mode").and_then(Value::as_str) {
+            Some(m) => r.mode_defaults(m).map_or_else(err, |t| ok(serde_json::to_value(t).unwrap())),
+            None => err("missing mode".into()),
+        },
+        "delete-profile" => match req.get("name").and_then(Value::as_str) {
+            Some(n) => r.delete_profile(n).map_or_else(err, |_| ok(Value::Null)),
             None => err("missing name".into()),
         },
         "headphones" => ok(serde_json::to_value(r.headphones()).unwrap()),
