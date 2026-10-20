@@ -49,6 +49,8 @@ impl Profile {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
+    /// DTS on or off everywhere (off = plain sound on every device).
+    pub enabled: bool,
     /// Profile per kind of output, used for devices without their own choice.
     pub defaults: BTreeMap<String, String>,
     /// Profile chosen per output device (PipeWire node name).
@@ -67,6 +69,7 @@ impl Default for Config {
             ("other", "Off"),
         ];
         Config {
+            enabled: true,
             defaults: defaults.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(),
             devices: BTreeMap::new(),
             profiles: Vec::new(),

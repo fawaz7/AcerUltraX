@@ -30,6 +30,10 @@ pub fn set_profile(name: &str, device: Option<&str>) {
     let _ = request(json!({"cmd": "set-profile", "name": name, "device": device}));
 }
 
+pub fn set_enabled(on: bool) {
+    let _ = request(json!({"cmd": "enable", "on": on}));
+}
+
 pub fn set_compare(on: bool) {
     let _ = request(json!({"cmd": "compare", "on": on}));
 }

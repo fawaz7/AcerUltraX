@@ -13,6 +13,7 @@ pub struct AuxTray {
     pub device: Option<String>,
     pub profile: Option<String>,
     pub compare: bool,
+    pub enabled: bool,
 }
 
 fn open_window() {
@@ -55,6 +56,16 @@ impl ksni::Tray for AuxTray {
             StandardItem {
                 label: self.device.clone().unwrap_or_else(|| "Service not running".into()),
                 enabled: false,
+                ..Default::default()
+            }
+            .into(),
+            CheckmarkItem {
+                label: "DTS:X Ultra".into(),
+                checked: self.enabled,
+                activate: Box::new(|t: &mut Self| {
+                    t.enabled = !t.enabled;
+                    client::set_enabled(t.enabled);
+                }),
                 ..Default::default()
             }
             .into(),

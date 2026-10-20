@@ -95,6 +95,7 @@ pub struct Status {
     pub kind: Option<Kind>,
     pub profile: Option<String>,
     pub mode: Option<String>,
+    pub enabled: bool,
     pub bypass: bool,
     pub compare: bool,
     pub rate: u32,
@@ -684,7 +685,7 @@ impl Router {
         let Some(n) = self.target.and_then(|t| self.nodes.get(&t)) else { return };
         let kind = self.kind(n);
         let profile = self.config.profile_for(&n.name, kind);
-        self.shared.bypass.store(profile.dts_mode().is_none(), Ordering::Relaxed);
+        self.shared.bypass.store(!self.config.enabled || profile.dts_mode().is_none(), Ordering::Relaxed);
         if let Some(mode) = profile.dts_mode() {
             let tuning = kind.tuning();
             let rate = match self.shared.rate.load(Ordering::Relaxed) {
@@ -764,6 +765,7 @@ impl Router {
             kind: n.map(|n| self.kind(n)),
             profile: self.profile.as_ref().map(|p| p.name.clone()),
             mode: self.profile.as_ref().and_then(|p| p.dts_mode()).map(|m| m.to_string()),
+            enabled: self.config.enabled,
             bypass: self.shared.bypass.load(Ordering::Relaxed),
             compare: self.shared.match_loudness.load(Ordering::Relaxed),
             rate: self.shared.rate.load(Ordering::Relaxed),
@@ -845,6 +847,12 @@ impl Router {
         self.config.save();
         self.apply_profile();
         Ok(())
+    }
+
+    pub fn set_enabled(&mut self, on: bool) {
+        self.config.enabled = on;
+        self.config.save();
+        self.apply_profile();
     }
 
     pub fn set_compare(&mut self, on: bool) {

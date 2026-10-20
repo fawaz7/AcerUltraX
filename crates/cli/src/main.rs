@@ -45,6 +45,8 @@ enum Command {
     Devices,
     /// List the available profiles.
     Profiles,
+    /// Turn DTS on or off everywhere.
+    Power { state: OnOff },
     /// Loudness-matched comparison: turn DTS down to the loudness of the plain sound (on/off).
     Compare { state: OnOff },
     /// Start AcerUltraX with your session (on), or stop doing so (off).
@@ -115,6 +117,7 @@ fn main() -> Result<()> {
         }
         Command::Autostart { state: OnOff::On } => autostart::enable(),
         Command::Autostart { state: OnOff::Off } => autostart::disable(),
+        Command::Power { state } => daemon(json!({"cmd": "enable", "on": matches!(state, OnOff::On)})).map(|_| ()),
         Command::Compare { state } => daemon(json!({"cmd": "compare", "on": matches!(state, OnOff::On)})).map(|_| ()),
         Command::Render { input, output, mode, output_device } => {
             let mode: Mode = mode.parse()?;
@@ -185,6 +188,7 @@ fn status(data: &Path) -> Result<()> {
         Ok(s) => {
             let txt = |k: &str| s[k].as_str().unwrap_or("-").to_string();
             println!("Service:        running");
+            println!("DTS:            {}", if s["enabled"].as_bool() == Some(false) { "off" } else { "on" });
             println!("Output:         {} ({})", txt("device_name"), txt("kind"));
             println!("Profile:        {}", txt("profile"));
             println!("Comparison:     {}", if s["compare"].as_bool() == Some(true) { "on" } else { "off" });

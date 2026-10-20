@@ -78,6 +78,8 @@ fn hbox(spacing: i32) -> gtk::Box {
 struct Ui {
     device: gtk::Label,
     chip: gtk::Label,
+    power: gtk::Switch,
+    grid: gtk::Grid,
     modes: Vec<(String, gtk::ToggleButton)>,
     compare: gtk::ToggleButton,
     devices_box: gtk::Box,
@@ -87,9 +89,16 @@ struct Ui {
     tray: Option<ksni::blocking::Handle<tray::AuxTray>>,
 }
 
-fn sound_page(
-    ui_modes: &mut Vec<(String, gtk::ToggleButton)>,
-) -> (gtk::Box, gtk::Label, gtk::Label, gtk::ToggleButton) {
+struct SoundPage {
+    page: gtk::Box,
+    device: gtk::Label,
+    chip: gtk::Label,
+    power: gtk::Switch,
+    grid: gtk::Grid,
+    compare: gtk::ToggleButton,
+}
+
+fn sound_page(ui_modes: &mut Vec<(String, gtk::ToggleButton)>) -> SoundPage {
     let page = vbox(24);
     page.add_css_class("page");
 
@@ -103,6 +112,11 @@ fn sound_page(
     let chip = label("", &["chip"]);
     chip.set_valign(Align::Center);
     header.append(&chip);
+    let power = gtk::Switch::new();
+    power.set_valign(Align::Center);
+    power.set_tooltip_text(Some("DTS:X Ultra on or off"));
+    power.update_property(&[gtk::accessible::Property::Label("DTS:X Ultra on or off")]);
+    header.append(&power);
     page.append(&header);
 
     page.append(&label("Sound mode", &["h2"]));
@@ -145,7 +159,7 @@ fn sound_page(
         "Volume: use your system's volume control as usual. It applies after DTS, as on Windows.",
         &["muted", "small"],
     ));
-    (page, device, chip, compare)
+    SoundPage { page, device, chip, power, grid, compare }
 }
 
 fn devices_page() -> (gtk::Box, gtk::Box) {
@@ -294,9 +308,18 @@ fn refresh(ui: &Rc<Ui>) {
                 None => ui.device.set_text("No output device"),
             }
             let profile = s["profile"].as_str().unwrap_or("");
-            let on = s["mode"].as_str().is_some();
+            let enabled = s["enabled"].as_bool() != Some(false);
+            ui.power.set_active(enabled);
+            ui.grid.set_sensitive(enabled);
+            let on = enabled && s["mode"].as_str().is_some();
             let apps = s["streams"].as_u64().unwrap_or(0);
-            ui.chip.set_text(&if on { format!("DTS:X Ultra on · {apps} apps") } else { "DTS off".into() });
+            ui.chip.set_text(&if on {
+                format!("DTS:X Ultra on · {apps} apps")
+            } else if enabled {
+                "DTS off for this device".into()
+            } else {
+                "DTS off".into()
+            });
             if on {
                 ui.chip.remove_css_class("off")
             } else {
@@ -353,7 +376,7 @@ fn model_text() -> String {
 
 fn build_window(app: &gtk::Application, tray: Option<ksni::blocking::Handle<tray::AuxTray>>) -> gtk::ApplicationWindow {
     let mut modes = Vec::new();
-    let (sound, device, chip, compare) = sound_page(&mut modes);
+    let SoundPage { page: sound, device, chip, power, grid, compare } = sound_page(&mut modes);
     let (devices, devices_box) = devices_page();
     let stack = gtk::Stack::new();
     stack.set_hexpand(true);
@@ -401,6 +424,8 @@ fn build_window(app: &gtk::Application, tray: Option<ksni::blocking::Handle<tray
     let ui = Rc::new(Ui {
         device,
         chip,
+        power,
+        grid,
         modes,
         compare,
         devices_box,
@@ -417,6 +442,13 @@ fn build_window(app: &gtk::Application, tray: Option<ksni::blocking::Handle<tray
             }
         });
     }
+    let ui2 = ui.clone();
+    ui.power.connect_active_notify(move |sw| {
+        if !ui2.updating.get() {
+            client::set_enabled(sw.is_active());
+            refresh(&ui2);
+        }
+    });
     let ui2 = ui.clone();
     ui.compare.connect_toggled(move |b| {
         if !ui2.updating.get() {

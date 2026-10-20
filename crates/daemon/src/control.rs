@@ -2,7 +2,7 @@
 //!
 //! Requests: `{"cmd":"status"}`, `{"cmd":"profiles"}`, `{"cmd":"devices"}`,
 //! `{"cmd":"set-profile","name":"Movie"}` (optional `"device"`: a device's node name; default the current one),
-//! `{"cmd":"compare","on":true}`, `{"cmd":"reload"}`.
+//! `{"cmd":"enable","on":false}` (DTS everywhere), `{"cmd":"compare","on":true}`, `{"cmd":"reload"}`.
 
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixListener;
@@ -65,6 +65,10 @@ pub fn handle(r: &mut Router, req: &Value) -> Value {
             }
             None => err("missing name".into()),
         },
+        "enable" => {
+            r.set_enabled(req.get("on").and_then(Value::as_bool).unwrap_or(true));
+            ok(Value::Null)
+        }
         "compare" => {
             r.set_compare(req.get("on").and_then(Value::as_bool).unwrap_or(false));
             ok(Value::Null)
