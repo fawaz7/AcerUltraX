@@ -23,6 +23,7 @@ impl Biquad {
 }
 
 /// The two BS.1770 K-weighting stages (high shelf, then high-pass) for any sample rate.
+#[allow(clippy::excessive_precision)] // the published filter constants
 fn k_weighting(fs: f64) -> [Biquad; 2] {
     use std::f64::consts::PI;
     let (g, q, fc) = (3.99984385397, 0.7071752369554193, 1681.9744509555319);

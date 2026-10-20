@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/pe-loader", "crates/dts-eagle", "crates/audio-graph", "crates/importer", "crates/cli"]
+members = ["crates/pe-loader", "crates/dts-eagle", "crates/audio-graph", "crates/importer", "crates/daemon", "crates/cli"]
 
 [workspace.package]
 version = "0.1.0"
@@ -26,6 +26,11 @@ log = "0.4"
 env_logger = "0.11"
 clap = { version = "4", features = ["derive"] }
 hound = "3"
+serde_json = "1"
+pipewire = "0.10.1"
+libspa = "0.10.1"
+libspa-sys = "0.10.1"
+pipewire-sys = "0.10.1"
 
 [profile.release]
 panic = "abort"

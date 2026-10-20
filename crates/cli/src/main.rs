@@ -1,11 +1,14 @@
 //! `acerultrax-cli`: set up the DTS files, check the laptop, and render audio files through the DTS chain.
 
+mod autostart;
+
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand, ValueEnum};
 use dts_eagle::{Library, Location, Mode, OemConfig, Output};
 use importer::{Manifest, Support};
+use serde_json::json;
 
 #[derive(Parser)]
 #[command(name = "acerultrax-cli", version, about = "AcerUltraX command-line tool")]
@@ -29,8 +32,16 @@ enum Command {
         #[arg(long)]
         ssid: Option<String>,
     },
-    /// Show what is set up.
+    /// Show what is set up and what the background service is doing.
     Status,
+    /// Use a profile (a DTS mode such as music, movie, game1, or off) on the current output device.
+    Mode { name: String },
+    /// List the available profiles.
+    Profiles,
+    /// Loudness-matched comparison: turn DTS down to the loudness of the plain sound (on/off).
+    Compare { state: OnOff },
+    /// Start AcerUltraX with your session (on), or stop doing so (off).
+    Autostart { state: OnOff },
     /// Process a WAV file through the DTS chain, as Windows does for one app (1, 2, 6 or 8 channels in, stereo out).
     Render {
         input: PathBuf,
@@ -42,6 +53,12 @@ enum Command {
     },
     /// List the DTS engine's controls.
     Controls,
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+enum OnOff {
+    On,
+    Off,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -67,6 +84,16 @@ fn main() -> Result<()> {
         Command::Detect => detect(),
         Command::Import { source, ssid } => import(&source, ssid, &data),
         Command::Status => status(&data),
+        Command::Mode { name } => daemon(json!({"cmd": "set-profile", "name": name})).map(|_| ()),
+        Command::Profiles => {
+            for p in daemon(json!({"cmd": "profiles"}))?.as_array().into_iter().flatten() {
+                println!("{}", p["name"].as_str().unwrap_or(""));
+            }
+            Ok(())
+        }
+        Command::Autostart { state: OnOff::On } => autostart::enable(),
+        Command::Autostart { state: OnOff::Off } => autostart::disable(),
+        Command::Compare { state } => daemon(json!({"cmd": "compare", "on": matches!(state, OnOff::On)})).map(|_| ()),
         Command::Render { input, output, mode, output_device } => {
             let mode: Mode = mode.parse()?;
             on_engine_thread(move || render(&data, &input, &output, mode, output_device.into()))
@@ -132,7 +159,35 @@ fn status(data: &Path) -> Result<()> {
     );
     println!("Imported from:  {}", m.source.display());
     println!("Tuning files:   {}", m.files.len());
+    match daemon(json!({"cmd": "status"})) {
+        Ok(s) => {
+            let txt = |k: &str| s[k].as_str().unwrap_or("-").to_string();
+            println!("Service:        running");
+            println!("Output:         {} ({})", txt("device_name"), txt("kind"));
+            println!("Profile:        {}", txt("profile"));
+            println!("Comparison:     {}", if s["compare"].as_bool() == Some(true) { "on" } else { "off" });
+            println!("Apps:           {}", s["streams"]);
+        }
+        Err(_) => println!("Service:        not running"),
+    }
+    println!("Autostart:      {}", if autostart::enabled() { "on" } else { "off" });
     Ok(())
+}
+
+/// Send one request to the background service and return its result.
+fn daemon(req: serde_json::Value) -> Result<serde_json::Value> {
+    use std::io::{BufRead, BufReader, Write};
+    let dir = std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
+    let mut s = std::os::unix::net::UnixStream::connect(dir.join("acerultrax.sock"))
+        .context("the AcerUltraX service is not running")?;
+    writeln!(s, "{req}")?;
+    let mut line = String::new();
+    BufReader::new(s).read_line(&mut line)?;
+    let reply: serde_json::Value = serde_json::from_str(&line)?;
+    if reply["ok"].as_bool() != Some(true) {
+        bail!("{}", reply["error"].as_str().unwrap_or("request failed"));
+    }
+    Ok(reply["result"].clone())
 }
 
 fn load(data: &Path) -> Result<(&'static Library, OemConfig)> {

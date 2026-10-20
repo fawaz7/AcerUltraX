@@ -150,8 +150,8 @@ impl Chain {
                         let k = (n - off).min(MAX_BLOCK);
                         let mut ins = [&[][..]; 8];
                         let width = if ch == 1 { 2 } else { ch };
-                        for c in 0..width {
-                            ins[c] = &s.channels[if ch == 1 { 0 } else { c }][off..off + k];
+                        for (c, slot) in ins.iter_mut().enumerate().take(width) {
+                            *slot = &s.channels[if ch == 1 { 0 } else { c }][off..off + k];
                         }
                         let [o0, o1] = &mut sfx_out;
                         if e.process(&ins[..width], &mut [&mut o0[..k], &mut o1[..k]]).is_err() {
