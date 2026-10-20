@@ -1,0 +1,10 @@
+LIBRARY KERNEL32.dll
+EXPORTS
+GetProcessHeap
+HeapAlloc
+HeapFree
+GetLastError
+SetLastError
+FlsAlloc
+FlsSetValue
+FlsGetValue

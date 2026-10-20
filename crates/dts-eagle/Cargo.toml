@@ -1,0 +1,18 @@
+[package]
+name = "dts-eagle"
+description = "Safe wrapper around the DTS Eagle audio engine (dtstech64.dll) and Acer's OEM tuning files"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+pe-loader.workspace = true
+thiserror.workspace = true
+roxmltree.workspace = true
+log.workspace = true
+
+[dev-dependencies]
+env_logger.workspace = true
