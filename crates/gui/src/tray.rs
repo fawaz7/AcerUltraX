@@ -26,6 +26,44 @@ fn open_window() {
     });
 }
 
+thread_local! {
+    /// The running icon, and the hold that keeps the app alive with only the icon.
+    static TRAY: std::cell::RefCell<Option<(ksni::blocking::Handle<AuxTray>, gtk::gio::ApplicationHoldGuard)>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Show the icon (if the desktop has a tray). Returns whether it is shown.
+pub fn start(app: &gtk::Application) -> bool {
+    use ksni::blocking::TrayMethods;
+    TRAY.with_borrow_mut(|t| {
+        if t.is_none() {
+            match AuxTray::default().spawn() {
+                Ok(h) => *t = Some((h, app.hold())),
+                Err(e) => eprintln!("acerultrax: no top-bar icon: {e}"),
+            }
+        }
+        t.is_some()
+    })
+}
+
+pub fn stop() {
+    if let Some((h, _hold)) = TRAY.take() {
+        h.shutdown().wait();
+    }
+}
+
+pub fn running() -> bool {
+    TRAY.with_borrow(|t| t.is_some())
+}
+
+pub fn update(f: impl FnOnce(&mut AuxTray)) {
+    TRAY.with_borrow(|t| {
+        if let Some((h, _)) = t {
+            h.update(f);
+        }
+    });
+}
+
 impl ksni::Tray for AuxTray {
     fn id(&self) -> String {
         "acerultrax".into()

@@ -13,7 +13,6 @@ use std::time::Duration;
 
 use gtk::prelude::*;
 use gtk::{Align, Orientation, glib};
-use ksni::blocking::TrayMethods;
 use serde_json::Value;
 
 const APP_ID: &str = "io.github.fawaz7.AcerUltraX";
@@ -107,7 +106,6 @@ struct Ui {
     devices_seen: RefCell<Value>,
     /// Set while the UI is being updated from the service, so the handlers do not send it back.
     updating: Cell<bool>,
-    tray: Option<ksni::blocking::Handle<tray::AuxTray>>,
 }
 
 struct SoundPage {
@@ -409,7 +407,15 @@ fn settings_page() -> gtk::Box {
         "Icon in the top bar",
         "Quick mode switching; keeps AcerUltraX in the top bar after you close this window",
         tray_autostart_file().exists(),
-        Box::new(set_tray_autostart),
+        Box::new(|on| {
+            set_tray_autostart(on);
+            match gtk::gio::Application::default().and_downcast::<gtk::Application>() {
+                Some(app) if on => {
+                    tray::start(&app);
+                }
+                _ => tray::stop(),
+            }
+        }),
     ));
     page
 }
@@ -521,7 +527,7 @@ fn refresh(ui: &Rc<Ui>) {
         *ui.devices_seen.borrow_mut() = devices_v;
     }
     ui.updating.set(false);
-    if let Some(t) = &ui.tray {
+    if tray::running() {
         let (device, profile, compare, enabled) = match &st {
             Some(s) => (
                 s["device_name"].as_str().map(|n| friendly_name(s["kind"].as_str().unwrap_or(""), n)),
@@ -532,7 +538,7 @@ fn refresh(ui: &Rc<Ui>) {
             None => (None, None, false, false),
         };
         let mine: Vec<String> = ui.mine_buttons.borrow().iter().map(|(n, _)| n.clone()).collect();
-        t.update(move |t| {
+        tray::update(move |t| {
             t.device = device;
             t.profile = profile;
             t.compare = compare;
@@ -553,7 +559,7 @@ fn model_text() -> String {
     }
 }
 
-fn build_window(app: &gtk::Application, tray: Option<ksni::blocking::Handle<tray::AuxTray>>) -> gtk::ApplicationWindow {
+fn build_window(app: &gtk::Application) -> gtk::ApplicationWindow {
     let mut modes = Vec::new();
     let SoundPage { page: sound, device, chip, power, grid, mine_title, mine, spatial_card, spatial, compare } =
         sound_page(&mut modes);
@@ -617,7 +623,6 @@ fn build_window(app: &gtk::Application, tray: Option<ksni::blocking::Handle<tray
         devices_box,
         devices_seen: RefCell::new(Value::Null),
         updating: Cell::new(false),
-        tray,
     });
     for (p, b) in &ui.modes {
         let (ui2, p) = (ui.clone(), p.clone());
@@ -665,7 +670,13 @@ fn build_window(app: &gtk::Application, tray: Option<ksni::blocking::Handle<tray
         .build();
     window.add_css_class("aux");
     // With the top-bar icon, closing the window keeps the app (and the icon) running.
-    window.set_hide_on_close(ui.tray.is_some());
+    window.connect_close_request(|w| {
+        if tray::running() {
+            w.set_visible(false);
+            return glib::Propagation::Stop;
+        }
+        glib::Propagation::Proceed
+    });
     window
 }
 
@@ -734,22 +745,10 @@ fn main() -> glib::ExitCode {
             }
             return;
         }
-        let tray = if tray_autostart_file().exists() || hidden {
-            match tray::AuxTray::default().spawn() {
-                Ok(h) => Some(h),
-                Err(e) => {
-                    eprintln!("acerultrax: no top-bar icon: {e}");
-                    None
-                }
-            }
-        } else {
-            None
-        };
-        if tray.is_some() {
-            // Keep running with only the icon when the window is closed.
-            std::mem::forget(app.hold());
+        if tray_autostart_file().exists() || hidden {
+            tray::start(app);
         }
-        let window = build_window(app, tray);
+        let window = build_window(app);
         if !(hidden && !started.get()) {
             window.present();
         }

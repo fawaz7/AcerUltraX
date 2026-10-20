@@ -404,6 +404,8 @@ pub fn window(app: &gtk::Application, done: impl Fn(&gtk::Application) + 'static
         let (w, app, done) = (window.clone(), app.clone(), done.clone());
         Rc::new(move || {
             start_service();
+            // The top-bar icon is on from the start, as on Windows.
+            crate::set_tray_autostart(true);
             w.close();
             done(&app);
         })
