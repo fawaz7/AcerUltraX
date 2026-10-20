@@ -26,7 +26,7 @@ const MODES: [(&str, &str, &str); 8] = [
     ("Game3", "Game 3", "Game preset 3"),
     ("Voice", "Voice", "For calls and speech"),
     ("Custom Audio", "Custom", "Acer's custom preset"),
-    ("Off", "Off", "DTS neutral, speakers protected"),
+    ("Off", "Off", "Neutral, speakers protected"),
 ];
 
 fn config_dir() -> PathBuf {
@@ -41,10 +41,35 @@ fn tray_autostart_file() -> PathBuf {
     config_dir().join("autostart/acerultrax-tray.desktop")
 }
 
+/// The four profiles in the top-bar menu (one name per line in the app's config folder).
+fn tray_profiles_file() -> PathBuf {
+    config_dir().join("acerultrax/top-bar-profiles")
+}
+
+fn tray_profiles() -> Vec<String> {
+    let saved: Vec<String> = std::fs::read_to_string(tray_profiles_file())
+        .unwrap_or_default()
+        .lines()
+        .map(|l| l.trim().to_string())
+        .filter(|l| !l.is_empty())
+        .take(4)
+        .collect();
+    if saved.len() == 4 { saved } else { tray::DEFAULT_SHOWN.iter().map(|s| s.to_string()).collect() }
+}
+
+fn set_tray_profiles(names: &[String]) {
+    let p = tray_profiles_file();
+    let _ = std::fs::create_dir_all(p.parent().unwrap());
+    let _ = std::fs::write(&p, names.join("\n") + "\n");
+    let shown = names.to_vec();
+    tray::update(move |t| t.shown = shown);
+}
+
 fn set_tray_autostart(on: bool) {
     let p = tray_autostart_file();
     if on {
-        let exe = std::env::current_exe().map(|e| e.display().to_string()).unwrap_or_else(|_| "acerultrax".into());
+        let exe =
+            std::env::current_exe().map(|e| importer::desktop_exec_quote(&e)).unwrap_or_else(|_| "acerultrax".into());
         let _ = std::fs::create_dir_all(p.parent().unwrap());
         let _ = std::fs::write(
             &p,
@@ -137,8 +162,8 @@ fn sound_page(ui_modes: &mut Vec<(String, gtk::ToggleButton)>) -> SoundPage {
     header.append(&chip);
     let power = gtk::Switch::new();
     power.set_valign(Align::Center);
-    power.set_tooltip_text(Some("DTS:X Ultra on or off"));
-    power.update_property(&[gtk::accessible::Property::Label("DTS:X Ultra on or off")]);
+    power.set_tooltip_text(Some("Acer:Ultra X on or off"));
+    power.update_property(&[gtk::accessible::Property::Label("Acer:Ultra X on or off")]);
     header.append(&power);
     page.append(&header);
 
@@ -180,7 +205,7 @@ fn sound_page(ui_modes: &mut Vec<(String, gtk::ToggleButton)>) -> SoundPage {
     text.set_hexpand(true);
     text.append(&label("Spatial sound", &[]));
     text.append(&label(
-        "Windows' DTS:X Ultra (speakers) or DTS Headphone:X: 5.1 and 7.1 games and films around you",
+        "Like Windows' spatial sound: 5.1 and 7.1 games and films all around you, on speakers or headphones",
         &["muted", "small"],
     ));
     spatial_card.append(&text);
@@ -196,7 +221,7 @@ fn sound_page(ui_modes: &mut Vec<(String, gtk::ToggleButton)>) -> SoundPage {
     let text = vbox(4);
     text.set_hexpand(true);
     text.append(&label("Compare with plain sound", &[]));
-    text.append(&label("Same loudness, so you hear only what DTS changes", &["muted", "small"]));
+    text.append(&label("Same loudness, so you hear only what Acer:Ultra X changes", &["muted", "small"]));
     card.append(&text);
     let compare = gtk::ToggleButton::with_label("Compare");
     compare.add_css_class("outline");
@@ -205,7 +230,7 @@ fn sound_page(ui_modes: &mut Vec<(String, gtk::ToggleButton)>) -> SoundPage {
     page.append(&card);
 
     page.append(&label(
-        "Volume: use your system's volume control as usual. It applies after DTS, as on Windows.",
+        "Volume: use your system's volume control as usual. It applies after Acer:Ultra X, as on Windows.",
         &["muted", "small"],
     ));
     SoundPage { page, device, chip, power, grid, mine_title, mine, spatial_card, spatial, compare }
@@ -228,9 +253,9 @@ fn devices_page() -> (gtk::Box, gtk::Box) {
 
 fn kind_text(kind: &str) -> &'static str {
     match kind {
-        "speakers" => "DTS speaker tuning",
-        "headphones" => "DTS headphone tuning",
-        "bluetooth" => "Headphones · DTS headphone tuning",
+        "speakers" => "Acer's speaker tuning",
+        "headphones" => "Acer's headphone tuning",
+        "bluetooth" => "Headphones · Acer's headphone tuning",
         "bluetooth-speaker" => "Speaker · plain sound unless you pick a mode",
         _ => "Plain sound unless you pick a mode",
     }
@@ -381,7 +406,7 @@ fn settings_page() -> gtk::Box {
         || config_dir().join("autostart/acerultrax-daemon.desktop").exists();
     page.append(&row(
         "Start with my session",
-        "DTS:X Ultra is on whenever you log in",
+        "Acer:Ultra X is on whenever you log in",
         autostart,
         Box::new(|on| {
             let cli = std::env::current_exe()
@@ -403,20 +428,133 @@ fn settings_page() -> gtk::Box {
             page.append(&extras_card(c.ssid));
         }
     }
-    page.append(&row(
-        "Icon in the top bar",
-        "Quick mode switching; keeps AcerUltraX in the top bar after you close this window",
-        tray_autostart_file().exists(),
-        Box::new(|on| {
+    page.append(&top_bar_card(&row));
+    page
+}
+
+/// Builds a settings row: title, hint, initial state, what the switch does.
+type RowFn = dyn Fn(&str, &str, bool, Box<dyn Fn(bool)>) -> gtk::Box;
+
+/// The top-bar icon switch, and the four profiles its menu offers.
+fn top_bar_card(row: &RowFn) -> gtk::Box {
+    let card = vbox(14);
+    card.add_css_class("card");
+    let picks = vbox(10);
+    let on = tray_autostart_file().exists();
+    picks.set_visible(on);
+    let p2 = picks.clone();
+    let switch_row = row(
+        "Top bar icon",
+        "Switch profiles from the top bar; AcerUltraX stays there after you close this window",
+        on,
+        Box::new(move |on| {
             set_tray_autostart(on);
+            p2.set_visible(on);
             match gtk::gio::Application::default().and_downcast::<gtk::Application>() {
                 Some(app) if on => {
                     tray::start(&app);
+                    tray::update(|t| t.shown = tray_profiles());
                 }
                 _ => tray::stop(),
             }
         }),
+    );
+    // The row is a card of its own elsewhere; here it is part of this one.
+    switch_row.remove_css_class("card");
+    card.append(&switch_row);
+
+    picks.append(&gtk::Separator::new(Orientation::Horizontal));
+    picks.append(&label("Profiles in the top-bar menu", &[]));
+    let names: Vec<String> = MODES
+        .iter()
+        .map(|m| m.0.to_string())
+        .chain(client::profiles().into_iter().filter(|n| !profiles::is_builtin(n)))
+        .collect();
+    let labels: Vec<String> = names.iter().map(|n| client::label(n)).collect();
+    let current = tray_profiles();
+    let grid = gtk::Grid::new();
+    grid.set_column_spacing(12);
+    grid.set_column_homogeneous(true);
+    let drops: Rc<RefCell<Vec<gtk::DropDown>>> = Rc::default();
+    for i in 0..4 {
+        let model = gtk::StringList::new(&labels.iter().map(|s| s.as_str()).collect::<Vec<_>>());
+        let d = gtk::DropDown::new(Some(model), gtk::Expression::NONE);
+        d.update_property(&[gtk::accessible::Property::Label(&format!("Top-bar profile {}", i + 1))]);
+        if let Some(k) = current.get(i).and_then(|c| names.iter().position(|n| n == c)) {
+            d.set_selected(k as u32);
+        }
+        let (drops2, names2) = (drops.clone(), names.clone());
+        d.connect_selected_notify(move |_| {
+            let chosen: Vec<String> =
+                drops2.borrow().iter().filter_map(|d| names2.get(d.selected() as usize).cloned()).collect();
+            if chosen.len() == 4 {
+                set_tray_profiles(&chosen);
+            }
+        });
+        grid.attach(&d, i as i32, 0, 1, 1);
+        drops.borrow_mut().push(d);
+    }
+    picks.append(&grid);
+    card.append(&picks);
+    card
+}
+
+/// Built by, links, and a star.
+fn about_page() -> gtk::Box {
+    let page = vbox(14);
+    page.add_css_class("page");
+    page.set_valign(Align::Center);
+    page.set_halign(Align::Center);
+    let tex = gtk::gdk::Texture::from_bytes(&glib::Bytes::from_static(include_bytes!(
+        "../../../data/icons/hicolor/256x256/apps/io.github.fawaz7.AcerUltraX.png"
+    )))
+    .ok();
+    let icon = gtk::Image::from_paintable(tex.as_ref());
+    icon.set_pixel_size(128);
+    page.append(&icon);
+    let center = |l: gtk::Label| {
+        l.set_xalign(0.5);
+        l.set_justify(gtk::Justification::Center);
+        l
+    };
+    let name = center(label("", &["about-name"]));
+    name.set_markup("Acer<span foreground=\"#22d3ee\">UltraX</span>");
+    page.append(&name);
+    page.append(&center(label(&format!("Version {}", env!("CARGO_PKG_VERSION")), &["muted", "small"])));
+    page.append(&center(label("Your Acer laptop's Windows sound, on Linux.", &[])));
+    let by = center(label("", &["muted"]));
+    by.set_markup("Built with care by <b>Fawaz Al-Ghzawi</b>");
+    by.set_margin_top(8);
+    page.append(&by);
+
+    let links = hbox(10);
+    links.set_halign(Align::Center);
+    links.set_margin_top(10);
+    let link = |text: &str, uri: &'static str, class: &str| {
+        let b = gtk::Button::with_label(text);
+        b.add_css_class(class);
+        b.connect_clicked(move |b| {
+            gtk::UriLauncher::new(uri).launch(
+                b.root().and_downcast_ref::<gtk::Window>(),
+                gtk::gio::Cancellable::NONE,
+                |_| {},
+            );
+        });
+        b
+    };
+    links.append(&link("★  Star on GitHub", "https://github.com/fawaz7/AcerUltraX", "primary"));
+    links.append(&link("Fawaz on GitHub", "https://github.com/fawaz7", "outline"));
+    links.append(&link("Report a problem", "https://github.com/fawaz7/AcerUltraX/issues", "outline"));
+    page.append(&links);
+    page.append(&center(label("Like it? A star helps other Acer owners find it.", &["muted", "small"])));
+
+    let legal = center(label(
+        "Free and open source under the MIT licence. Not affiliated with or endorsed by Acer.",
+        &["muted", "small"],
     ));
+    legal.set_margin_top(24);
+    legal.set_max_width_chars(60);
+    page.append(&legal);
     page
 }
 
@@ -491,11 +629,11 @@ fn refresh(ui: &Rc<Ui>) {
             let on = enabled && s["mode"].as_str().is_some();
             let apps = s["streams"].as_u64().unwrap_or(0);
             ui.chip.set_text(&if on {
-                format!("DTS:X Ultra on · {apps} app{}", if apps == 1 { "" } else { "s" })
+                format!("Acer:Ultra X on · {apps} app{}", if apps == 1 { "" } else { "s" })
             } else if enabled {
-                "DTS off for this device".into()
+                "Off for this device".into()
             } else {
-                "DTS off".into()
+                "Acer:Ultra X off".into()
             });
             if on {
                 ui.chip.remove_css_class("off")
@@ -527,24 +665,33 @@ fn refresh(ui: &Rc<Ui>) {
         *ui.devices_seen.borrow_mut() = devices_v;
     }
     ui.updating.set(false);
+    update_tray(st.as_ref());
+}
+
+/// The top-bar menu's device and profile, from a status reply (only touched when they change).
+fn update_tray(st: Option<&Value>) {
+    if !tray::running() {
+        return;
+    }
+    let (device, profile) = match st {
+        Some(s) => (
+            s["device_name"].as_str().map(|n| friendly_name(s["kind"].as_str().unwrap_or(""), n)),
+            s["profile"].as_str().map(String::from),
+        ),
+        None => (None, None),
+    };
+    if tray::current().is_some_and(|(d, p)| d == device && p == profile) {
+        return;
+    }
+    tray::update(move |t| {
+        t.device = device;
+        t.profile = profile;
+    });
+}
+
+fn refresh_tray() {
     if tray::running() {
-        let (device, profile, compare, enabled) = match &st {
-            Some(s) => (
-                s["device_name"].as_str().map(|n| friendly_name(s["kind"].as_str().unwrap_or(""), n)),
-                s["profile"].as_str().map(String::from),
-                s["compare"].as_bool() == Some(true),
-                s["enabled"].as_bool() != Some(false),
-            ),
-            None => (None, None, false, false),
-        };
-        let mine: Vec<String> = ui.mine_buttons.borrow().iter().map(|(n, _)| n.clone()).collect();
-        tray::update(move |t| {
-            t.device = device;
-            t.profile = profile;
-            t.compare = compare;
-            t.enabled = enabled;
-            t.mine = mine;
-        });
+        update_tray(client::status().as_ref());
     }
 }
 
@@ -552,8 +699,8 @@ fn refresh(ui: &Rc<Ui>) {
 fn model_text() -> String {
     match importer::laptop_codec() {
         Some(c) => match importer::VERIFIED_MODELS.iter().find(|(s, _)| s.eq_ignore_ascii_case(&c.ssid)) {
-            Some((_, model)) => format!("{}\nDTS:X Ultra · supported", model.trim_start_matches("Acer ")),
-            None => format!("Acer laptop {}\nDTS:X Ultra · experimental", c.ssid),
+            Some((_, model)) => format!("{}\nAcer:Ultra X · supported", model.trim_start_matches("Acer ")),
+            None => format!("Acer laptop {}\nAcer:Ultra X · experimental", c.ssid),
         },
         None => "No Acer sound chip found".into(),
     }
@@ -570,6 +717,7 @@ fn build_window(app: &gtk::Application) -> gtk::ApplicationWindow {
     stack.add_named(&profiles::page(), Some("profiles"));
     stack.add_named(&devices, Some("devices"));
     stack.add_named(&settings_page(), Some("settings"));
+    stack.add_named(&about_page(), Some("about"));
 
     let side = vbox(4);
     side.add_css_class("sidebar");
@@ -578,7 +726,13 @@ fn build_window(app: &gtk::Application) -> gtk::ApplicationWindow {
     b.add_css_class("brand");
     side.append(&b);
     let mut group: Option<gtk::ToggleButton> = None;
-    for (id, text) in [("sound", "Sound"), ("profiles", "Profiles"), ("devices", "Devices"), ("settings", "Settings")] {
+    for (id, text) in [
+        ("sound", "Sound"),
+        ("profiles", "Profiles"),
+        ("devices", "Devices"),
+        ("settings", "Settings"),
+        ("about", "About"),
+    ] {
         let b = gtk::ToggleButton::with_label(text);
         b.add_css_class("nav");
         if let Some(l) = b.child().and_then(|c| c.downcast::<gtk::Label>().ok()) {
@@ -656,8 +810,18 @@ fn build_window(app: &gtk::Application) -> gtk::ApplicationWindow {
     });
     refresh(&ui);
     let ui2 = ui.clone();
+    let window_ref: Rc<RefCell<Option<glib::WeakRef<gtk::ApplicationWindow>>>> = Rc::default();
+    let w2 = window_ref.clone();
+    let ticks = Cell::new(0u32);
     glib::timeout_add_local(Duration::from_secs(1), move || {
-        refresh(&ui2);
+        // Hidden (only the top-bar icon): just keep the icon's menu current, every few seconds.
+        let visible = w2.borrow().as_ref().and_then(|w| w.upgrade()).is_some_and(|w| w.is_visible());
+        ticks.set(ticks.get().wrapping_add(1));
+        if visible {
+            refresh(&ui2);
+        } else if ticks.get() % 4 == 0 {
+            refresh_tray();
+        }
         glib::ControlFlow::Continue
     });
 
@@ -669,6 +833,7 @@ fn build_window(app: &gtk::Application) -> gtk::ApplicationWindow {
         .child(&root)
         .build();
     window.add_css_class("aux");
+    *window_ref.borrow_mut() = Some(window.downgrade());
     // With the top-bar icon, closing the window keeps the app (and the icon) running.
     window.connect_close_request(|w| {
         if tray::running() {

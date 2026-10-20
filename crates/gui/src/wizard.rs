@@ -282,7 +282,7 @@ fn manual_card(model: &str, done: Rc<dyn Fn()>, parent: &gtk::ApplicationWindow)
         Rc::new(move || {
             let f = files.borrow();
             files_label.set_text(&if f.is_empty() {
-                format!("No DTS downloads in {} yet.", downloads_dir().display())
+                format!("No Acer downloads in {} yet.", downloads_dir().display())
             } else {
                 let names: Vec<String> =
                     f.iter().filter_map(|p| p.file_name().map(|n| n.to_string_lossy().into_owned())).collect();
@@ -306,7 +306,7 @@ fn manual_card(model: &str, done: Rc<dyn Fn()>, parent: &gtk::ApplicationWindow)
         filter.set_name(Some("Zip files"));
         let filters = gio::ListStore::new::<gtk::FileFilter>();
         filters.append(&filter);
-        let dialog = gtk::FileDialog::builder().title("Acer's DTS downloads").filters(&filters).build();
+        let dialog = gtk::FileDialog::builder().title("Acer's downloads").filters(&filters).build();
         let (f3, s3) = (f2.clone(), s2.clone());
         dialog.open_multiple(Some(&w2), gio::Cancellable::NONE, move |res| {
             if let Ok(list) = res {
@@ -368,7 +368,7 @@ pub fn window(app: &gtk::Application, done: impl Fn(&gtk::Application) + 'static
     let title = crate::brand(36, "Welcome to ");
     title.add_css_class("title");
     page.append(&title);
-    page.append(&label("DTS:X Ultra sound for your Acer laptop, as on Windows.", &["muted"]));
+    page.append(&label("Acer:Ultra X sound for your Acer laptop, as on Windows.", &["muted"]));
 
     // The laptop.
     let codec = importer::laptop_codec();
@@ -387,7 +387,7 @@ pub fn window(app: &gtk::Application, done: impl Fn(&gtk::Application) + 'static
                 format!("Sound chip {} · should sound as on Windows; please tell us how it goes", c.ssid),
             ),
         },
-        None => ("Not supported", "off", "No Acer sound chip found. AcerUltraX needs an Acer laptop with DTS.".into()),
+        None => ("Not supported", "off", "No Acer sound chip found. AcerUltraX needs a supported Acer laptop.".into()),
     };
     text.append(&label(&hint, &["muted", "small"]));
     card.append(&text);
@@ -416,9 +416,9 @@ pub fn window(app: &gtk::Application, done: impl Fn(&gtk::Application) + 'static
             // One click: download from Acer.
             let card = vbox(14);
             card.add_css_class("card");
-            card.append(&label("Get DTS from Acer", &[]));
+            card.append(&label("Get the sound files from Acer", &[]));
             card.append(&label(
-                "AcerUltraX downloads your laptop's DTS files directly from Acer and keeps only what it uses \
+                "AcerUltraX downloads your laptop's sound files directly from Acer and keeps only what it uses \
                  (about 20 MB).",
                 &["muted", "small"],
             ));

@@ -118,7 +118,7 @@ pub fn page() -> gtk::Box {
     area.set_hexpand(true);
     let curve_card = vbox(6);
     curve_card.add_css_class("card");
-    curve_card.append(&label("Measured response of DTS on this output (with your changes)", &["muted", "small"]));
+    curve_card.append(&label("Measured response on this output (with your changes)", &["muted", "small"]));
     curve_card.append(&area);
     body.append(&curve_card);
 
@@ -153,7 +153,7 @@ pub fn page() -> gtk::Box {
     let surround = gtk::Switch::new();
     let room = gtk::DropDown::from_strings(&ROOMS.iter().map(|r| r.1).collect::<Vec<_>>());
     let loudness = gtk::Switch::new();
-    body.append(&control_row("Bass (DTS TruBass)", &bass));
+    body.append(&control_row("Bass", &bass));
     body.append(&control_row("Dialogue clarity", &dialog));
     let sr = control_row("Surround", &surround);
     let room_label = label("Room", &["muted"]);
@@ -401,9 +401,17 @@ fn save(ed: &Rc<Editor>) {
     refresh_curve(ed);
 }
 
+/// Measure the curve off the main thread (about 0.1 s), so editing never stalls; a newer edit's result wins.
 fn refresh_curve(ed: &Rc<Editor>) {
-    *ed.curve.borrow_mut() = client::response(&ed.profile.borrow());
-    ed.area.queue_draw();
+    let p = ed.profile.borrow().clone();
+    let (ed, g) = (ed.clone(), ed.generation.get());
+    gtk::glib::spawn_future_local(async move {
+        let Ok(curve) = gtk::gio::spawn_blocking(move || client::response(&p)).await else { return };
+        if ed.generation.get() == g {
+            *ed.curve.borrow_mut() = curve;
+            ed.area.queue_draw();
+        }
+    });
 }
 
 fn new_profile(ed: &Rc<Editor>) {

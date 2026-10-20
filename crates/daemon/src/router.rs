@@ -648,6 +648,7 @@ impl Router {
 
     /// Pick the device (debounced: a headphone plug produces a burst of changes) and apply its profile.
     pub fn tick(&mut self) {
+        self.shared.empty_trash();
         self.check_slots();
         self.ticks += 1;
         if self.ticks % 300 == 0 {
@@ -944,9 +945,14 @@ impl Router {
             _ => None,
         };
         let (lib, shared) = (self.lib, self.shared.clone());
+        let spares = self.shared.groups.lock().unwrap().len();
         let spawned = std::thread::Builder::new().name("dts-build".into()).stack_size(8 << 20).spawn(move || {
             match audio_graph::Prepared::build(lib, &t, rate, eq, spatial) {
-                Ok(p) => *shared.pending.lock().unwrap() = Some(p),
+                Ok(mut p) => {
+                    // Engines for the streams playing now, so they switch without work on the audio thread.
+                    p.add_spares(lib, spares);
+                    *shared.pending.lock().unwrap() = Some(p)
+                }
                 Err(e) => log::error!("cannot prepare {mode} ({tuning:?}, {rate} Hz): {e}"),
             }
         });

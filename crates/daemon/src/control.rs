@@ -8,7 +8,7 @@
 //! `{"cmd":"response","profile":{..}}` (measured response curve: [[Hz, dB], ...]),
 //! `{"cmd":"enable","on":false}` (DTS everywhere), `{"cmd":"compare","on":true}`, `{"cmd":"reload"}`.
 
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::net::UnixListener;
 use std::path::PathBuf;
 use std::sync::mpsc;
@@ -21,9 +21,11 @@ use crate::router::Router;
 pub type Request = (Value, mpsc::Sender<Value>);
 
 pub fn socket_path() -> PathBuf {
-    let dir = std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
-    dir.join("acerultrax.sock")
+    importer::socket_path()
 }
+
+/// Longest request line accepted (a profile with its EQ is well under 1 KB).
+const MAX_LINE: u64 = 1 << 20;
 
 /// Accept connections on a background thread and pass requests to the main loop.
 pub fn serve(tx: pipewire::channel::Sender<Request>) -> std::io::Result<()> {
@@ -35,7 +37,14 @@ pub fn serve(tx: pipewire::channel::Sender<Request>) -> std::io::Result<()> {
             let tx = tx.clone();
             std::thread::spawn(move || {
                 let mut out = conn.try_clone().expect("socket clone");
-                for line in BufReader::new(conn).lines().map_while(Result::ok) {
+                let mut reader = BufReader::new(conn);
+                loop {
+                    let mut line = String::new();
+                    match (&mut reader).take(MAX_LINE).read_line(&mut line) {
+                        Ok(0) | Err(_) => break,
+                        Ok(_) if !line.ends_with('\n') => break,
+                        Ok(_) => {}
+                    }
                     let req = serde_json::from_str(&line)
                         .unwrap_or_else(|e| json!({"cmd": "invalid", "error": e.to_string()}));
                     let (rtx, rrx) = mpsc::channel();

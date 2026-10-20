@@ -354,8 +354,7 @@ fn routes_text(h: &serde_json::Value) -> String {
 /// Send one request to the background service and return its result.
 fn daemon(req: serde_json::Value) -> Result<serde_json::Value> {
     use std::io::{BufRead, BufReader, Write};
-    let dir = std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
-    let mut s = std::os::unix::net::UnixStream::connect(dir.join("acerultrax.sock"))
+    let mut s = std::os::unix::net::UnixStream::connect(importer::socket_path())
         .context("the AcerUltraX service is not running")?;
     writeln!(s, "{req}")?;
     let mut line = String::new();

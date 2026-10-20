@@ -39,6 +39,17 @@ pub struct Shared {
     pub rate: AtomicU32,
     /// Rate of the mode in use (0 = none).
     pub mode_rate: AtomicU32,
+    /// What the chain let go of, freed by the main loop ([`Shared::empty_trash`]).
+    pub trash: Mutex<Vec<audio_graph::Garbage>>,
+}
+
+impl Shared {
+    /// Free what the audio thread set aside (main loop), and leave room for next time.
+    pub fn empty_trash(&self) {
+        let mut t = self.trash.lock().unwrap();
+        t.clear();
+        t.reserve(audio_graph::TRASH);
+    }
 }
 
 struct Rt {
@@ -160,9 +171,7 @@ unsafe extern "C" fn on_process(data: *mut c_void, position: *mut libspa_sys::sp
     if let Ok(mut p) = shared.pending.try_lock() {
         if let Some(mode) = p.take() {
             shared.mode_rate.store(mode.rate(), Ordering::Relaxed);
-            // shortcut: the old mode's engines are freed here on the audio thread (a few frees), move them to
-            // the main loop if that ever shows up as a dropout.
-            drop(rt.chain.set_mode(mode));
+            rt.chain.set_mode(mode);
         }
     }
     rt.chain.bypass = shared.bypass.load(Ordering::Relaxed);
@@ -194,4 +203,8 @@ unsafe extern "C" fn on_process(data: *mut c_void, position: *mut libspa_sys::sp
     let inputs: [StreamInput; MAX_GROUPS] =
         std::array::from_fn(|i| StreamInput { id: ids[i], channels: &bufs[i][..widths[i]] });
     rt.chain.process(rate, &inputs[..k], [l, r]);
+    drop(groups);
+    if let Ok(mut bin) = shared.trash.try_lock() {
+        rt.chain.take_trash(&mut bin);
+    }
 }

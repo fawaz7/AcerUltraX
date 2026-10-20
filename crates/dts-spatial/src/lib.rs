@@ -47,6 +47,8 @@ impl Render {
 pub const RATE: u32 = 48000;
 /// Frames per encoder call; small so it fits any PipeWire quantum with little delay.
 const BLOCK: usize = 128;
+/// Largest block [`Encoder::process`] is given at once (as the audio chain's), so its buffers never grow there.
+const MAX_FRAMES: usize = 8192;
 /// {DEFF1192-F581-4D77-9C1B-3E596B0CA989}
 const IID_IASARENCODER2: com::Guid =
     com::Guid(0xDEFF1192, 0xF581, 0x4D77, [0x9C, 0x1B, 0x3E, 0x59, 0x6B, 0x0C, 0xA9, 0x89]);
@@ -134,7 +136,13 @@ impl Encoder {
         // Stereo out: 2 channels, WAVE mask FL|FR.
         let hr = unsafe { vfn::<InitializeFn>(enc, 3)(enc, BLOCK, RATE as usize, mask, 2, 0x3, 0, 0, props.as_ptr()) };
         drop(props);
-        let me = Encoder { module, enc, channels, pending: Vec::new(), ready: VecDeque::new() };
+        let me = Encoder {
+            module,
+            enc,
+            channels,
+            pending: Vec::with_capacity((MAX_FRAMES + BLOCK) * channels),
+            ready: VecDeque::with_capacity(MAX_FRAMES + 2 * BLOCK),
+        };
         check("initialize", hr)?;
         Ok(me)
     }
@@ -151,23 +159,23 @@ impl Encoder {
         }
         let _g = self.module.enter();
         let mut stereo = [0f32; BLOCK * 2];
-        while self.pending.len() >= BLOCK * ch {
+        let mut off = 0;
+        while self.pending.len() - off >= BLOCK * ch {
             let mut written = 0u32;
+            let block = self.pending[off..].as_ptr();
+            off += BLOCK * ch;
             unsafe {
-                check(
-                    "MixChannelBed",
-                    vfn::<MixBedFn>(self.enc, 6)(self.enc, self.pending.as_ptr(), BLOCK as u32, ch as u32, 1.0, 0),
-                )?;
+                check("MixChannelBed", vfn::<MixBedFn>(self.enc, 6)(self.enc, block, BLOCK as u32, ch as u32, 1.0, 0))?;
                 check(
                     "Process",
                     vfn::<ProcessFn>(self.enc, 7)(self.enc, (BLOCK * 2 * 4) as u32, stereo.as_mut_ptr(), &mut written),
                 )?;
             }
-            self.pending.drain(..BLOCK * ch);
             let frames = (written as usize / 8).min(BLOCK);
             self.ready
                 .extend((0..BLOCK).map(|i| if i < frames { [stereo[2 * i], stereo[2 * i + 1]] } else { [0.0; 2] }));
         }
+        self.pending.drain(..off);
         let [l, r] = out;
         // Before the first block is out, the delay is silence.
         let missing = n.saturating_sub(self.ready.len());

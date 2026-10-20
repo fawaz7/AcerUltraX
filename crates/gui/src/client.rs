@@ -2,15 +2,13 @@
 
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
-use std::path::PathBuf;
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 use serde_json::{Value, json};
 
 pub fn request(req: Value) -> Result<Value> {
-    let dir = std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
-    let mut s = UnixStream::connect(dir.join("acerultrax.sock")).context("the AcerUltraX service is not running")?;
+    let mut s = UnixStream::connect(importer::socket_path()).context("the AcerUltraX service is not running")?;
     s.set_read_timeout(Some(Duration::from_secs(5)))?;
     writeln!(s, "{req}")?;
     let mut line = String::new();

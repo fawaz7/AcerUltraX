@@ -8,6 +8,10 @@ use std::sync::Arc;
 
 use zip::ZipArchive;
 
+/// The most a single file inside an archive may unpack to (Acer's largest, the DTS app bundle, is ~360 MB):
+/// a damaged or hostile zip cannot exhaust memory.
+const MAX_UNPACKED: u64 = 1 << 30;
+
 /// A file somewhere under the sources, with its path split into components. Zip files made on Windows may use
 /// backslashes, which Linux unzip tools keep inside file names, so those count as separators too.
 pub struct Entry {
@@ -110,8 +114,8 @@ impl Entry {
             Origin::Zip { archive, index } => {
                 let mut z = archive.open()?;
                 let mut f = z.by_index(*index).map_err(std::io::Error::other)?;
-                let mut v = Vec::with_capacity(f.size() as usize);
-                f.read_to_end(&mut v)?;
+                let mut v = Vec::with_capacity(f.size().min(64 << 20) as usize);
+                (&mut f).take(MAX_UNPACKED).read_to_end(&mut v)?;
                 Ok(v)
             }
         }
@@ -199,7 +203,7 @@ fn walk_archive(archive: Arc<Archive>, prefix: &[String], out: &mut Vec<Entry>) 
                     let mut v = Vec::new();
                     z.by_index(index)
                         .ok()
-                        .and_then(|mut f| f.read_to_end(&mut v).ok())
+                        .and_then(|f| f.take(MAX_UNPACKED).read_to_end(&mut v).ok())
                         .map(|_| Archive::Mem(Arc::new(v)))
                 }
             };

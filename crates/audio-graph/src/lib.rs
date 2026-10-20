@@ -6,8 +6,10 @@
 //! 4-channel stream (front pair, unprocessed)       ─┘
 //! ```
 //!
-//! [`Chain::process`] runs on the audio thread. Mode changes are prepared off it with [`Prepared::build`] and
-//! swapped in with [`Chain::set_mode`]; a new stream's engine is created from the mode's tuning blob (about 1 ms).
+//! [`Chain::process`] runs on the audio thread. Mode changes are prepared off it with [`Prepared::build`] (with
+//! ready-made engines for the streams already playing, [`Prepared::add_spares`]) and swapped in with
+//! [`Chain::set_mode`]; only a stream that starts later gets its engine made on the audio thread (about 1 ms).
+//! Nothing is freed on the audio thread: whatever the chain lets go of goes to [`Chain::take_trash`].
 
 mod eq;
 mod loudness;
@@ -35,6 +37,33 @@ pub struct Prepared {
     eq: Option<Eq>,
     /// Spatial sound for 5.1/7.1 streams, if on.
     spatial: Option<Spatial>,
+    /// Stereo stream engines made in advance, taken by streams as they need one.
+    spares: Vec<Engine>,
+}
+
+/// Something the chain no longer needs, to be freed off the audio thread.
+pub enum Garbage {
+    Mode(Prepared),
+    Engine(Engine),
+    Spatial(dts_spatial::Encoder),
+}
+
+/// How much the chain can set aside between two [`Chain::take_trash`] calls; beyond that it frees in place.
+pub const TRASH: usize = 64;
+
+fn discard(trash: &mut Vec<Garbage>, g: Garbage) {
+    if trash.len() < trash.capacity() {
+        trash.push(g);
+    }
+}
+
+fn discard_stream(trash: &mut Vec<Garbage>, st: StreamEngine) {
+    if let Some(e) = st.engine {
+        discard(trash, Garbage::Engine(e));
+    }
+    if let Some(e) = st.spatial {
+        discard(trash, Garbage::Spatial(e));
+    }
 }
 
 /// Windows' spatial sound for this output: multichannel streams go through the spatial encoder (instead of
@@ -61,7 +90,20 @@ impl Prepared {
         let (mut sfx, _) = dts_eagle::configured_engine(lib, tuning, Location::Sfx, 2, rate)?;
         let (mfx, _) = dts_eagle::configured_engine(lib, tuning, Location::Mfx, 2, rate)?;
         let spatial = spatial.filter(|_| rate == dts_spatial::RATE);
-        Ok(Prepared { rate, sfx_blob: sfx.tuning_blob(), mfx, eq: eq.map(|g| Eq::new(g, rate)), spatial })
+        Ok(Prepared {
+            rate,
+            sfx_blob: sfx.tuning_blob(),
+            mfx,
+            eq: eq.map(|g| Eq::new(g, rate)),
+            spatial,
+            spares: Vec::new(),
+        })
+    }
+
+    /// Make `n` stereo stream engines in advance (off the audio thread), so streams already playing switch
+    /// mode without engines being made on the audio thread.
+    pub fn add_spares(&mut self, lib: &'static Library, n: usize) {
+        self.spares.extend((0..n).filter_map(|_| new_stream_engine(lib, &self.sfx_blob, 2, self.rate)));
     }
 
     pub fn rate(&self) -> u32 {
@@ -103,6 +145,9 @@ pub struct Chain {
     mix: [Vec<f32>; 2],
     /// Consecutive frames of digital silence going into the mode engine.
     mix_silent: usize,
+    /// Stream ids that went away this block (scratch).
+    gone: Vec<u32>,
+    trash: Vec<Garbage>,
     /// Scratch for a stream's spatial encoder output.
     spatial_out: [Vec<f32>; 2],
     /// Pass audio through without DTS (front pairs mixed).
@@ -123,6 +168,8 @@ impl Chain {
             seen_ids: Vec::new(),
             mix: [vec![0.0; MAX_FRAMES], vec![0.0; MAX_FRAMES]],
             mix_silent: 0,
+            gone: Vec::with_capacity(64),
+            trash: Vec::with_capacity(TRASH),
             spatial_out: [vec![0.0; MAX_FRAMES], vec![0.0; MAX_FRAMES]],
             bypass: false,
             gain: 1.0,
@@ -131,11 +178,23 @@ impl Chain {
         }
     }
 
-    /// Swap in a new mode (or rate). Stream engines are recreated from it as audio arrives. Returns the old mode
-    /// so the caller can drop it off the audio thread.
-    pub fn set_mode(&mut self, mode: Prepared) -> Option<Prepared> {
-        self.streams.clear();
-        self.mode.replace(mode)
+    /// Swap in a new mode (or rate). Stream engines are recreated from it as audio arrives; the old ones and the
+    /// old mode go to the trash.
+    pub fn set_mode(&mut self, mode: Prepared) {
+        for (_, st) in self.streams.drain() {
+            discard_stream(&mut self.trash, st);
+        }
+        if let Some(old) = self.mode.replace(mode) {
+            discard(&mut self.trash, Garbage::Mode(old));
+        }
+    }
+
+    /// Hand over what the chain no longer needs, for the caller to free off the audio thread. `bin` must be
+    /// empty; the chain keeps `bin`'s capacity for next time (give it [`TRASH`] room). Allocates nothing.
+    pub fn take_trash(&mut self, bin: &mut Vec<Garbage>) {
+        if !self.trash.is_empty() && bin.is_empty() {
+            std::mem::swap(&mut self.trash, bin);
+        }
     }
 
     /// Sample rate of the current mode, if any.
@@ -164,7 +223,9 @@ impl Chain {
         let mode = match &mut self.mode {
             Some(m) if m.rate == rate && !self.bypass => m,
             _ => {
-                self.streams.clear();
+                for (_, st) in self.streams.drain() {
+                    discard_stream(&mut self.trash, st);
+                }
                 apply_gain(dry_l, l, self.gain);
                 apply_gain(dry_r, r, self.gain);
                 return;
@@ -174,8 +235,13 @@ impl Chain {
         // Drop engines of streams that are gone.
         self.seen_ids.clear();
         self.seen_ids.extend(streams.iter().map(|s| s.id));
-        let seen = &self.seen_ids;
-        self.streams.retain(|id, _| seen.contains(id));
+        self.gone.clear();
+        self.gone.extend(self.streams.keys().filter(|id| !self.seen_ids.contains(id)));
+        for id in &self.gone {
+            if let Some(st) = self.streams.remove(id) {
+                discard_stream(&mut self.trash, st);
+            }
+        }
 
         let mut sfx_out = [[0f32; MAX_BLOCK]; 2];
         for s in streams {
@@ -190,8 +256,12 @@ impl Chain {
             st.silent = if silent { st.silent + n } else { 0 };
             if st.silent > STREAM_REST_SECS * rate as usize {
                 if st.silent > STREAM_FREE_SECS * rate as usize {
-                    st.engine = None;
-                    st.spatial = None;
+                    if let Some(e) = st.engine.take() {
+                        discard(&mut self.trash, Garbage::Engine(e));
+                    }
+                    if let Some(e) = st.spatial.take() {
+                        discard(&mut self.trash, Garbage::Spatial(e));
+                    }
                 }
                 continue;
             }
@@ -200,9 +270,12 @@ impl Chain {
                     st.channels = ch;
                     // shortcut: the encoder starts on the audio thread (~5 ms, once per stream); prepare it off
                     // the audio thread if that ever causes a dropout at small quantum sizes.
-                    st.spatial = dts_spatial::Encoder::new(sp.module, sp.render, &sp.preset, &sp.device, ch)
+                    let new = dts_spatial::Encoder::new(sp.module, sp.render, &sp.preset, &sp.device, ch)
                         .map_err(|e| log::warn!("spatial sound unavailable for a {ch}-channel stream: {e}"))
                         .ok();
+                    if let Some(old) = std::mem::replace(&mut st.spatial, new) {
+                        discard(&mut self.trash, Garbage::Spatial(old));
+                    }
                 }
                 if let Some(enc) = &mut st.spatial {
                     let [a, b] = &mut self.spatial_out;
@@ -215,7 +288,13 @@ impl Chain {
             }
             if st.channels != ch || (st.engine.is_none() && ch != 4) {
                 st.channels = ch;
-                st.engine = new_stream_engine(self.lib, &mode.sfx_blob, ch, rate);
+                let new = match ch {
+                    1 | 2 => mode.spares.pop().or_else(|| new_stream_engine(self.lib, &mode.sfx_blob, ch, rate)),
+                    _ => new_stream_engine(self.lib, &mode.sfx_blob, ch, rate),
+                };
+                if let Some(old) = std::mem::replace(&mut st.engine, new) {
+                    discard(&mut self.trash, Garbage::Engine(old));
+                }
             }
             match &mut st.engine {
                 None => {

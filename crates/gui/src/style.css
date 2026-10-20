@@ -57,3 +57,4 @@ window.aux { background: @bg; color: @text; font-family: Inter, Cantarell, sans-
 .aux progressbar trough { background: @line2; border-radius: 4px; min-height: 6px; }
 .aux progressbar progress { background: @accent; border-radius: 4px; min-height: 6px; }
 .aux separator { background: @line; }
+.aux .about-name { font-size: 30px; font-weight: 800; }

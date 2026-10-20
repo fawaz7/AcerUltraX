@@ -80,6 +80,35 @@ pub fn data_dir() -> PathBuf {
     home.join(".local/share/acerultrax")
 }
 
+/// A program path as one argument of a desktop entry's `Exec=` line (quoted per the Desktop Entry spec, so spaces
+/// or `%` in the path do not break it).
+pub fn desktop_exec_quote(path: &Path) -> String {
+    let mut q = String::from("\"");
+    for c in path.to_string_lossy().chars() {
+        match c {
+            '"' | '`' | '$' => q.extend(['\\', '\\', c]),
+            '\\' => q.push_str("\\\\\\\\"),
+            '%' => q.push_str("%%"),
+            c => q.push(c),
+        }
+    }
+    q.push('"');
+    q
+}
+
+/// The service's control socket: in `$XDG_RUNTIME_DIR` (private to the user), else in a private folder under
+/// the user's cache (never a shared folder such as /tmp, where another user could take the name first).
+pub fn socket_path() -> PathBuf {
+    if let Some(d) = std::env::var_os("XDG_RUNTIME_DIR").filter(|d| !d.is_empty()) {
+        return PathBuf::from(d).join("acerultrax.sock");
+    }
+    let dir = download::cache_dir().with_file_name("acerultrax-run");
+    let _ = std::fs::create_dir_all(&dir);
+    use std::os::unix::fs::PermissionsExt;
+    let _ = std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700));
+    dir.join("acerultrax.sock")
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Manifest {
     pub ssid: String,
@@ -236,6 +265,16 @@ pub fn import(srcs: &[PathBuf], ssid: &str, data_dir: &Path) -> Result<Manifest,
     let text = toml::to_string_pretty(&manifest).map_err(|e| Error::Manifest(e.to_string()))?;
     std::fs::write(&mpath, text).map_err(io(&mpath))?;
     Ok(manifest)
+}
+
+#[cfg(test)]
+mod quote_tests {
+    #[test]
+    fn exec_quote() {
+        let q = |s: &str| super::desktop_exec_quote(std::path::Path::new(s));
+        assert_eq!(q("/usr/bin/acerultrax"), "\"/usr/bin/acerultrax\"");
+        assert_eq!(q("/home/a/My Apps/100%/x"), "\"/home/a/My Apps/100%%/x\"");
+    }
 }
 
 #[cfg(test)]

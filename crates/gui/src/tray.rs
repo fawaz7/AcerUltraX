@@ -2,20 +2,19 @@
 //! extension. The app works the same without it.
 
 use gtk::prelude::*;
-use ksni::menu::{CheckmarkItem, MenuItem, RadioGroup, RadioItem, StandardItem};
+use ksni::menu::{MenuItem, RadioGroup, RadioItem, StandardItem};
 
 use crate::client;
 
-pub const MODES: [&str; 9] = ["Music", "Movie", "Game1", "Game2", "Game3", "Voice", "Custom Audio", "Off", "Plain"];
+/// The profiles in the menu unless the user picks others (Settings).
+pub const DEFAULT_SHOWN: [&str; 4] = ["Music", "Movie", "Game1", "Voice"];
 
 #[derive(Default)]
 pub struct AuxTray {
     pub device: Option<String>,
     pub profile: Option<String>,
-    pub compare: bool,
-    pub enabled: bool,
-    /// The user's own profiles, listed after the modes.
-    pub mine: Vec<String>,
+    /// The four profiles the menu offers.
+    pub shown: Vec<String>,
 }
 
 fn open_window() {
@@ -56,6 +55,11 @@ pub fn running() -> bool {
     TRAY.with_borrow(|t| t.is_some())
 }
 
+/// The device and profile the menu shows now.
+pub fn current() -> Option<(Option<String>, Option<String>)> {
+    TRAY.with_borrow(|t| t.as_ref().and_then(|(h, _)| h.update(|t| (t.device.clone(), t.profile.clone()))))
+}
+
 pub fn update(f: impl FnOnce(&mut AuxTray)) {
     TRAY.with_borrow(|t| {
         if let Some((h, _)) = t {
@@ -94,7 +98,7 @@ impl ksni::Tray for AuxTray {
             (Some(p), Some(d)) => format!("{} on {d}", client::label(p)),
             _ => "Service not running".into(),
         };
-        ksni::ToolTip { title: "DTS:X Ultra".into(), description: what, ..Default::default() }
+        ksni::ToolTip { title: "AcerUltraX".into(), description: what, ..Default::default() }
     }
 
     fn activate(&mut self, _x: i32, _y: i32) {
@@ -102,10 +106,10 @@ impl ksni::Tray for AuxTray {
     }
 
     fn menu(&self) -> Vec<MenuItem<Self>> {
-        let names: Vec<String> = MODES.iter().map(|m| m.to_string()).chain(self.mine.iter().cloned()).collect();
-        let selected = self.profile.as_deref().and_then(|p| names.iter().position(|m| m == p)).unwrap_or(names.len());
+        let selected =
+            self.profile.as_deref().and_then(|p| self.shown.iter().position(|m| m == p)).unwrap_or(self.shown.len());
         let options: Vec<RadioItem> =
-            names.iter().map(|m| RadioItem { label: client::label(m), ..Default::default() }).collect();
+            self.shown.iter().map(|m| RadioItem { label: client::label(m), ..Default::default() }).collect();
         vec![
             StandardItem {
                 label: self.device.clone().unwrap_or_else(|| "Service not running".into()),
@@ -113,41 +117,19 @@ impl ksni::Tray for AuxTray {
                 ..Default::default()
             }
             .into(),
-            CheckmarkItem {
-                label: "DTS:X Ultra".into(),
-                checked: self.enabled,
-                activate: Box::new(|t: &mut Self| {
-                    t.enabled = !t.enabled;
-                    client::set_enabled(t.enabled);
-                }),
-                ..Default::default()
-            }
-            .into(),
             MenuItem::Separator,
             RadioGroup {
                 selected,
                 select: Box::new(|t: &mut Self, i| {
-                    let names: Vec<String> =
-                        MODES.iter().map(|m| m.to_string()).chain(t.mine.iter().cloned()).collect();
-                    if let Some(n) = names.get(i) {
-                        client::set_profile(n, None);
-                        t.profile = Some(n.clone());
+                    if let Some(n) = t.shown.get(i).cloned() {
+                        client::set_profile(&n, None);
+                        t.profile = Some(n);
                     }
                 }),
                 options,
             }
             .into(),
             MenuItem::Separator,
-            CheckmarkItem {
-                label: "Compare with plain sound".into(),
-                checked: self.compare,
-                activate: Box::new(|t: &mut Self| {
-                    t.compare = !t.compare;
-                    client::set_compare(t.compare);
-                }),
-                ..Default::default()
-            }
-            .into(),
             StandardItem {
                 label: "Open AcerUltraX".into(),
                 activate: Box::new(|_| open_window()),

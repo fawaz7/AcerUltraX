@@ -41,12 +41,18 @@ fn desktop_file() -> PathBuf {
     config_dir().join("autostart/acerultrax-daemon.desktop")
 }
 
+/// A path as one quoted `ExecStart=` word (`%` and `$` are special to systemd).
+fn systemd_quote(p: &std::path::Path) -> String {
+    let s = p.to_string_lossy().replace('\\', "\\\\").replace('"', "\\\"").replace('%', "%%").replace('$', "$$");
+    format!("\"{s}\"")
+}
+
 pub fn enable() -> Result<()> {
     if systemd_user() {
         // A package installs the unit system-wide; otherwise write one for this user.
         if !PathBuf::from("/usr/lib/systemd/user").join(UNIT).exists() {
             let unit = include_str!("../../../packaging/acerultrax.service")
-                .replace("/usr/bin/acerultrax-daemon", &daemon_path()?.display().to_string());
+                .replace("/usr/bin/acerultrax-daemon", &systemd_quote(&daemon_path()?));
             let p = config_dir().join("systemd/user").join(UNIT);
             std::fs::create_dir_all(p.parent().unwrap())?;
             std::fs::write(&p, unit)?;
@@ -62,7 +68,7 @@ pub fn enable() -> Result<()> {
             &p,
             format!(
                 "[Desktop Entry]\nType=Application\nName=AcerUltraX service\nExec={}\nNoDisplay=true\nX-GNOME-Autostart-enabled=true\n",
-                d.display()
+                importer::desktop_exec_quote(&d)
             ),
         )?;
         Command::new(&d).spawn().context("starting the service")?;

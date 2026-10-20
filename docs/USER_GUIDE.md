@@ -45,8 +45,9 @@ AcerUltraX does not include any Acer or DTS files: it downloads them from Acer, 
   feel (half volume is about as loud as half volume on Windows).
 - **Output device:** pick it in your desktop's sound settings as usual. AcerUltraX follows: plug in headphones
   or connect Bluetooth and it switches by itself.
-- **Sound mode:** on the **Sound** page, or from the top-bar icon (turn it on under Settings; on GNOME it needs
-  the AppIndicator extension).
+- **Sound mode:** on the **Sound** page, or from the top-bar icon. The icon's menu offers four profiles; pick
+  which under Settings → **Top bar icon** (where you can also turn the icon off). On GNOME it needs the
+  AppIndicator extension.
 - **On/off:** the switch at the top of the Sound page turns DTS off for everything (plain sound).
 - **Compare:** plays plain sound at the same loudness as DTS, so you hear only what DTS changes. DTS is louder,
   and louder always sounds "better", so this is the fair way to compare.

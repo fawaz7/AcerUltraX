@@ -126,6 +126,13 @@ pub(crate) fn aes_ecb_pkcs7(key: &[u8; 16], data: &[u8]) -> Option<Vec<u8>> {
     Some(p)
 }
 
+/// A name that is safe as (part of) a file name: letters, digits, `_`, `-`, `.`, and not `.`/`..`.
+fn safe_name(s: &str) -> bool {
+    !s.is_empty()
+        && !s.starts_with('.')
+        && s.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'.'))
+}
+
 /// Open a database found in the sources (sqlite needs a file).
 fn open_db(e: &Entry, tmp: &Path) -> Result<rusqlite::Connection, Error> {
     let bytes = e.read().map_err(io(Path::new(&e.describe())))?;
@@ -203,7 +210,9 @@ pub fn import(entries: &[Entry], dts_dir: &Path) -> Result<usize, Error> {
     let dlls: Vec<&Entry> =
         entries.iter().filter(|e| KEY_DLLS.iter().any(|d| d.eq_ignore_ascii_case(e.name()))).collect();
 
-    let tmp = std::env::temp_dir().join(format!("acerultrax-import-{}", std::process::id()));
+    // sqlite needs files: copy the databases into a fresh folder of our own (not a shared one like /tmp).
+    let tmp = dts_dir.join("headphones.tmp");
+    let _ = std::fs::remove_dir_all(&tmp);
     std::fs::create_dir_all(&tmp).map_err(io(&tmp))?;
     let result = (|| {
         let mut all_names = BTreeMap::new();
@@ -239,6 +248,10 @@ pub fn import(entries: &[Entry], dts_dir: &Path) -> Result<usize, Error> {
         let mut models: BTreeMap<String, Headphone> = BTreeMap::new();
         for a in eqs.values() {
             let Some(n) = all_names.get(&a.id).filter(|n| !n.name.is_empty()) else { continue };
+            // Ids and EQ names become file names: allow nothing that could leave the folder.
+            if !safe_name(&a.id) || !safe_name(&a.uri) {
+                continue;
+            }
             let Some(plain) = decrypt(&key, &a.data) else { continue };
             let file = staging.join(format!("profile_{}", a.uri.trim_start_matches("profile_")));
             std::fs::write(&file, plain).map_err(io(&file))?;
