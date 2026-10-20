@@ -945,7 +945,7 @@ impl Router {
             _ => None,
         };
         let (lib, shared) = (self.lib, self.shared.clone());
-        let spares = self.shared.groups.lock().unwrap().len();
+        let spares = self.shared.busy_streams.load(std::sync::atomic::Ordering::Relaxed);
         let spawned = std::thread::Builder::new().name("dts-build".into()).stack_size(8 << 20).spawn(move || {
             match audio_graph::Prepared::build(lib, &t, rate, eq, spatial) {
                 Ok(mut p) => {

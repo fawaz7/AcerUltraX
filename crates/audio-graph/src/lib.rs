@@ -189,6 +189,12 @@ impl Chain {
         }
     }
 
+    /// Stereo (or mono) streams being processed right now (not resting): how many ready-made engines the next
+    /// mode should bring ([`Prepared::add_spares`]).
+    pub fn busy_streams(&self) -> usize {
+        self.streams.values().filter(|s| s.engine.is_some() && s.channels <= 2 && s.silent == 0).count()
+    }
+
     /// Hand over what the chain no longer needs, for the caller to free off the audio thread. `bin` must be
     /// empty; the chain keeps `bin`'s capacity for next time (give it [`TRASH`] room). Allocates nothing.
     pub fn take_trash(&mut self, bin: &mut Vec<Garbage>) {

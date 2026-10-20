@@ -39,6 +39,8 @@ pub struct Shared {
     pub rate: AtomicU32,
     /// Rate of the mode in use (0 = none).
     pub mode_rate: AtomicU32,
+    /// Stereo streams playing (from the audio thread), for ready-made engines on a mode change.
+    pub busy_streams: std::sync::atomic::AtomicUsize,
     /// What the chain let go of, freed by the main loop ([`Shared::empty_trash`]).
     pub trash: Mutex<Vec<audio_graph::Garbage>>,
 }
@@ -204,6 +206,7 @@ unsafe extern "C" fn on_process(data: *mut c_void, position: *mut libspa_sys::sp
         std::array::from_fn(|i| StreamInput { id: ids[i], channels: &bufs[i][..widths[i]] });
     rt.chain.process(rate, &inputs[..k], [l, r]);
     drop(groups);
+    shared.busy_streams.store(rt.chain.busy_streams(), Ordering::Relaxed);
     if let Ok(mut bin) = shared.trash.try_lock() {
         rt.chain.take_trash(&mut bin);
     }
