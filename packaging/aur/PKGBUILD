@@ -1,0 +1,53 @@
+# Maintainer: Fawaz Al-Ghzawi <ghazawe1@gmail.com>
+pkgname=acerultrax-git
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="DTS:X Ultra sound for Acer laptops on Linux: Acer's own DTS engine, natively, as on Windows"
+arch=('x86_64')
+url="https://github.com/fawaz7/AcerUltraX"
+license=('MIT')
+depends=('pipewire' 'wireplumber' 'gtk4' 'glibc' 'gcc-libs')
+optdepends=('pipewire-pulse: volume and device control from the desktop'
+            'gnome-shell-extension-appindicator: top-bar icon on GNOME')
+makedepends=('git' 'cargo' 'clang' 'pkgconf')
+# makepkg's LTO flags turn the C helpers inside the PipeWire and SQLite crates into objects the linker cannot use.
+options=('!lto')
+checkdepends=('lld' 'llvm')
+provides=('acerultrax')
+conflicts=('acerultrax')
+source=("$pkgname::git+$url.git")
+sha256sums=('SKIP')
+
+pkgver() {
+    cd "$pkgname"
+    printf "%s.r%s.g%s" "$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)" "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
+}
+
+prepare() {
+    cd "$pkgname"
+    export RUSTUP_TOOLCHAIN=stable
+    cargo fetch --locked --target "$(rustc -vV | sed -n 's/host: //p')"
+}
+
+build() {
+    cd "$pkgname"
+    export RUSTUP_TOOLCHAIN=stable CARGO_TARGET_DIR=target
+    cargo build --frozen --release --workspace
+}
+
+check() {
+    cd "$pkgname"
+    export RUSTUP_TOOLCHAIN=stable CARGO_TARGET_DIR=target
+    cargo test --frozen --release --workspace
+}
+
+package() {
+    cd "$pkgname"
+    for b in acerultrax acerultrax-daemon acerultrax-cli; do
+        install -Dm755 "target/release/$b" "$pkgdir/usr/bin/$b"
+    done
+    install -Dm644 packaging/acerultrax.service "$pkgdir/usr/lib/systemd/user/acerultrax.service"
+    install -Dm644 packaging/io.github.fawaz7.AcerUltraX.desktop "$pkgdir/usr/share/applications/io.github.fawaz7.AcerUltraX.desktop"
+    install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+    install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+}
