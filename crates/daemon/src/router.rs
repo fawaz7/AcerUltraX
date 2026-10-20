@@ -740,7 +740,7 @@ impl Router {
         let (Some(t), Some(s)) = (self.target, self.sink_id) else { return };
         if let Some(v) = volume::get(t) {
             self.volume_quiet_until = Instant::now() + Duration::from_millis(500);
-            volume::set(s, v);
+            volume::set(s, volume::from_device(v));
             self.volume_synced = true;
         }
     }
@@ -751,7 +751,7 @@ impl Router {
             return;
         }
         if let Some(t) = self.target {
-            volume::set_async(t, v);
+            volume::set_async(t, volume::to_device(v));
         }
     }
 

@@ -14,6 +14,20 @@ pub struct Volume {
     pub muted: bool,
 }
 
+/// The desktop's slider is cubic (50 % = -18 dB, 25 % = -36 dB); Windows' is much gentler (about -10 dB at
+/// 50 % and -20 dB at 25 %, roughly level^1.66). The slider position is passed to the device on Windows' curve.
+const WINDOWS_TAPER: f32 = 1.66 / 3.0;
+
+/// Slider position (desktop scale) -> device volume (desktop scale) giving Windows' loudness.
+pub fn to_device(v: Volume) -> Volume {
+    Volume { level: v.level.clamp(0.0, 1.0).powf(WINDOWS_TAPER), ..v }
+}
+
+/// The inverse of [`to_device`].
+pub fn from_device(v: Volume) -> Volume {
+    Volume { level: v.level.clamp(0.0, 1.0).powf(1.0 / WINDOWS_TAPER), ..v }
+}
+
 pub fn get(node: u32) -> Option<Volume> {
     let out = Command::new("wpctl").args(["get-volume", &node.to_string()]).output().ok()?;
     parse_wpctl(&String::from_utf8_lossy(&out.stdout))
@@ -80,6 +94,16 @@ pub fn parse_props(pod: &Pod) -> Option<Volume> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn windows_taper() {
+        // 50 % on the slider: about -10 dB at the device, as on Windows (cubic scale: dB = 60 log10(level)).
+        let db = 60.0 * to_device(Volume { level: 0.5, muted: false }).level.log10();
+        assert!((db - -10.0).abs() < 0.5, "{db}");
+        let v = Volume { level: 0.37, muted: true };
+        assert!((from_device(to_device(v)).level - 0.37).abs() < 1e-5);
+        assert_eq!(to_device(Volume { level: 1.0, muted: false }).level, 1.0);
+    }
 
     #[test]
     fn parses_wpctl_output() {
