@@ -7,9 +7,9 @@ Audio) made for the laptop's own speakers and for headphones. On Linux the same 
 AcerUltraX runs Acer's original DTS engine natively on Linux, without Wine, and processes your audio the way
 Windows does, sample for sample.
 
-> **Status: early development.** The DTS engine runs natively and matches Windows bit for bit in offline tests.
-> Live system-wide audio, the app window, profiles and per-device switching are being built (see
-> [Roadmap](#roadmap)). There is nothing to install for everyday use yet.
+> **Status: early development.** The DTS engine runs natively and matches Windows bit for bit in offline tests,
+> and the background service runs it live on your system's sound. The app window, spatial sound and the
+> profile maker are being built (see [Roadmap](#roadmap)).
 
 ## Supported laptops
 
@@ -31,7 +31,7 @@ are just as useful as bug reports.
 - It contains no licence checks. The DTS engine checks none on Linux either: on Windows, licensing lives in
   other parts of the DTS software, which AcerUltraX does not use.
 
-Requirements: a 64-bit x86 (x86_64) Acer laptop, Linux with PipeWire (for live audio, once available).
+Requirements: a 64-bit x86 (x86_64) Acer laptop, Linux with PipeWire and WirePlumber (`wpctl`).
 
 ## Try it (developers)
 
@@ -49,6 +49,18 @@ unzip it, then:
 ./target/release/acerultrax-cli render song.wav song-dts.wav --mode movie --output-device speakers
 ```
 
+Run DTS on your system's sound:
+
+```sh
+./target/release/acerultrax-daemon              # or: acerultrax-cli autostart on
+./target/release/acerultrax-cli mode movie      # music, movie, voice, game1-3, custom audio, off
+./target/release/acerultrax-cli compare on      # same loudness as plain sound, for a fair comparison
+```
+
+AcerUltraX becomes your default output. Pick the device you want in your desktop's sound settings as usual and
+AcerUltraX follows it; each device remembers its own mode. The volume is applied to the device after DTS, as
+on Windows.
+
 `render` processes a WAV file (mono, stereo, 5.1 or 7.1) offline, so you can listen to DTS without changing
 anything on your system. DTS output is louder than the original (by roughly 7-9 dB), so match the volume
 before you compare.
@@ -58,10 +70,10 @@ Files are stored in `~/.local/share/acerultrax/`.
 ## Roadmap
 
 1. ✅ Native DTS engine, bit-exact with Windows; importer for Acer's driver package
-2. Per-app processing like Windows (each app's stream in its own channel layout)
-3. Live system-wide audio through PipeWire, following speakers and headphones as you plug them
-4. Background service, command-line control
-5. Profiles, automatic profiles per output (speakers, wired headphones, Bluetooth), autostart
+2. ✅ Per-app processing like Windows (each app's stream in its own channel layout)
+3. ✅ Live system-wide audio through PipeWire, following the output you pick, headphones and Bluetooth
+4. ✅ Background service, command-line control
+5. ✅ A profile per output device (speakers, wired headphones, Bluetooth), autostart
 6. The app: mode switching, quick loudness-matched comparison, devices, settings
 7. Windows "Spatial sound: DTS:X Ultra"
 8. Profile maker: DTS controls and an equaliser with a live response curve
@@ -76,6 +88,8 @@ See [docs/TESTING.md](docs/TESTING.md). The code is split into crates under `cra
 | `pe-loader` | Loads 64-bit Windows DLLs into a Linux process and provides the Windows functions they use |
 | `dts-eagle` | Safe interface to the DTS engine; reads Acer's tuning configuration |
 | `importer` | Detects the sound chip; sets up the DTS files from Acer's package |
+| `audio-graph` | The Windows signal chain: an engine per app, mix, mode engine, loudness match |
+| `daemon` | `acerultrax-daemon`: PipeWire routing, device following, profiles, control socket |
 | `cli` | `acerultrax-cli` |
 
 ## Legal
