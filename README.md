@@ -74,16 +74,33 @@ Linux with PipeWire and WirePlumber (the default on current Fedora, Ubuntu, Debi
 
 ## Install
 
-**Arch Linux, CachyOS, Manjaro, EndeavourOS:**
+Needs a 64-bit Intel/AMD Acer laptop and Linux with PipeWire (the default on current distributions).
+
+**Debian 13, Ubuntu 24.04 and newer** (apt repository, so updates come with your system's updates):
 
 ```sh
-yay -S acerultrax-git
+curl -fsSL https://fawaz7.github.io/AcerUltraX/apt/acerultrax.gpg | sudo tee /usr/share/keyrings/acerultrax.gpg > /dev/null
+echo "deb [signed-by=/usr/share/keyrings/acerultrax.gpg] https://fawaz7.github.io/AcerUltraX/apt ./" | sudo tee /etc/apt/sources.list.d/acerultrax.list
+sudo apt update && sudo apt install acerultrax
 ```
+
+Or download the `.deb` from the [latest release](../../releases/latest) and run
+`sudo apt install ./acerultrax_*_amd64.deb`.
+
+**Any distribution, no package manager** (Fedora, openSUSE, Arch, …): download
+`acerultrax-*-x86_64-linux.tar.gz` from the [latest release](../../releases/latest), then:
+
+```sh
+tar xf acerultrax-*-x86_64-linux.tar.gz
+cd acerultrax-*-x86_64-linux
+./install.sh                 # installs for you, in ~/.local (no sudo); ./install.sh --uninstall removes it
+```
+
+**Arch-based** (Arch, CachyOS, Manjaro, EndeavourOS): build the package with
+[`packaging/aur/PKGBUILD`](packaging/aur/PKGBUILD) (`makepkg -si` in that folder).
 
 Then open **AcerUltraX** and click **Download and set up**. That's it: it is ready in about a minute and starts
 with your session from then on. See the **[user guide](docs/USER_GUIDE.md)** for everything else.
-
-**Other distributions:** build from source (below).
 
 ## Build from source
 
@@ -140,6 +157,16 @@ See [docs/TESTING.md](docs/TESTING.md) for the tests.
   ```sh
   echo 'options snd_sof_intel_hda_generic hda_model=alc2xx-fixup-headset-mic' | sudo tee /etc/modprobe.d/acerultrax-headset-mic.conf
   ```
+
+## How this was made
+
+AcerUltraX was made by **reverse engineering** Acer's Windows sound software: working out how Windows loads and
+configures the DTS engine, then doing the same on Linux. None of Acer's or DTS's code is in this repository; the
+app uses the files Acer publishes for your laptop.
+
+It was also **vibe coded**: written with an AI coding assistant (Claude), directed, tested and listened to by me
+on my own laptop. Before release it went through a security review and a performance review; everything they
+found was fixed, and all tests pass, including a bit-for-bit comparison with the Windows engine.
 
 ## Support the project
 

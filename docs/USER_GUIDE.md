@@ -5,14 +5,15 @@ Voice, Custom Audio), tuned by Acer for your laptop's speakers and for headphone
 
 ## Install
 
-**Arch Linux, CachyOS, Manjaro, EndeavourOS** (from the AUR):
+- **Debian 13, Ubuntu 24.04 and newer:** add the apt repository and `sudo apt install acerultrax`, or install
+  the `.deb` from the [latest release](https://github.com/fawaz7/AcerUltraX/releases/latest) with
+  `sudo apt install ./acerultrax_*_amd64.deb`.
+- **Any distribution, no package manager:** download the `.tar.gz` from the latest release, unpack it and run
+  `./install.sh` (it installs into your home folder; `./install.sh --uninstall` removes it).
+- **Arch-based:** `makepkg -si` in `packaging/aur` of the repository.
 
-```sh
-yay -S acerultrax-git
-```
-
-Other distributions: build from source (see the README). You need PipeWire with WirePlumber, which is the
-default on current Fedora, Ubuntu, Debian, openSUSE and Arch.
+The [README](https://github.com/fawaz7/AcerUltraX#install) has the exact commands. You need PipeWire with
+WirePlumber, which is the default on current Fedora, Ubuntu, Debian, openSUSE and Arch.
 
 ## First start
 

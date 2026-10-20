@@ -1,0 +1,64 @@
+name: Release
+
+# Push a tag like v0.1.0: builds on the oldest supported Ubuntu (so the binaries run on newer systems too),
+# publishes the GitHub release (.deb, tarball, checksums) and adds the .deb to the apt repository on GitHub Pages.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build tools, PipeWire and GTK headers
+        run: sudo apt-get update && sudo apt-get install -y clang lld llvm libpipewire-0.3-dev libgtk-4-dev dpkg-dev
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Version matches the tag
+        run: test "v$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)" = "$GITHUB_REF_NAME"
+      - run: cargo test --workspace --release
+      - run: cargo build --release --workspace
+      - name: Packages
+        run: |
+          sh packaging/deb/build-deb.sh
+          sh packaging/tarball/build-tarball.sh
+          (cd dist && sha256sum * > SHA256SUMS)
+      - name: GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/* --title "AcerUltraX ${GITHUB_REF_NAME#v}" --notes-file packaging/RELEASE_NOTES.md
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deb
+          path: dist/*.deb
+
+  apt:
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: deb
+          path: new
+      - name: Signing key
+        run: echo "${{ secrets.APT_SIGNING_KEY }}" | gpg --batch --import
+      - name: Add to the repository on the gh-pages branch
+        run: |
+          git fetch origin gh-pages && git worktree add pages origin/gh-pages || {
+            git worktree add --detach pages && (cd pages && git checkout --orphan gh-pages && git rm -rfq .)
+          }
+          sh packaging/deb/update-apt-repo.sh pages/apt new/*.deb
+          touch pages/.nojekyll
+          cd pages
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "apt: $GITHUB_REF_NAME"
+          git push origin HEAD:gh-pages
