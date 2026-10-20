@@ -1,0 +1,22 @@
+Package: acerultrax
+Architecture: amd64
+Version: 0.1.0
+Priority: optional
+Section: sound
+Maintainer: Fawaz Al-Ghzawi <ghazawe1@gmail.com>
+Installed-Size: 22780
+Depends: libc6 (>= 2.39), libcairo2 (>= 1.2.4), libgcc-s1 (>= 4.2), libglib2.0-0t64 (>= 2.54.0), libgtk-4-1 (>= 4.12.0), libpipewire-0.3-0t64 (>= 0.3.1), pipewire, wireplumber
+Recommends: pipewire-pulse
+Filename: pool/acerultrax_0.1.0_amd64.deb
+Size: 6922062
+MD5sum: 0c82f4a19aee60a98c17a9cd2ada3edf
+SHA1: d554b000308e5074bcb0a39aebcefda60a45348d
+SHA256: 83130c5e885f2304aaaf79e28eba9e3653ca81983532a413db738e72ab2bc93b
+SHA512: 7a763a5197353cb2cf751b1a93d14ac4295feafee9d1973fc0d67555ada33c77b542ec4d2fddc5dee1b926bf0e72b1d32299e6721e1d69eceeed1cf8c5aa195d
+Homepage: https://github.com/fawaz7/AcerUltraX
+Description: Your Acer laptop's Windows sound (DTS:X Ultra) on Linux
+ AcerUltraX runs Acer's DTS:X Ultra sound natively on Linux, without Wine:
+ Acer's sound modes for the laptop's speakers and headphones, per-device
+ profiles, headphone models, spatial sound and an equaliser. On first start
+ it downloads Acer's own files for the laptop from Acer.
+

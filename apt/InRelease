@@ -1,0 +1,32 @@
+-----BEGIN PGP SIGNED MESSAGE-----
+Hash: SHA512
+
+Architectures: amd64
+Date: Tue, 20 Oct 2026 19:31:28 +0000
+Description: AcerUltraX: your Acer laptop's Windows sound on Linux
+Label: AcerUltraX
+Origin: AcerUltraX
+Suite: stable
+MD5Sum:
+ adc978105827dae7e53e53eb95e176f2             1115 Packages
+ 97d75b175267f8dcd50ccc2e32de994b              720 Packages.gz
+ 007e3d6f4ea41e120282bc52b808a876              177 Release
+SHA1:
+ 7af700e189ff19dc7c52a6a5d145c72b075ab079             1115 Packages
+ 3c5833d9d587c82241909a51c8caec0b911f4c72              720 Packages.gz
+ 4130975d9ac55c781ad6f373c4a5413fc1eb1658              177 Release
+SHA256:
+ 07ee066034fe51d3add87dc3035d97df52d003cb988a231b37d44c0a4cbaf519             1115 Packages
+ 83a3df955602cd53899beddf6519abfe8856c3a1581b6f39f5df2bd581bc20d9              720 Packages.gz
+ 1bc921ec0d87776fb5469c8d89ff9e0bb06d76f761951e97051921e6092d4dfb              177 Release
+SHA512:
+ 51c4b6d3240fcbffb692c9f2e6d0ad547a4d1b1bd5747b0856e94b592e6ed564b37c8ab3a06c9a489a9db56ce38274928e6a13a3b9f54830cf6e0aaeb0a08111             1115 Packages
+ c285ef749dd98928050fbd29d722d462cc04c7620aa412ff3d5137627d11cd0148ba2b0277fff1c83585fd1d436126c74b1536fa76aa68de7a72b4bc213f82e6              720 Packages.gz
+ ddd863d7d1c5b73716fa76536a88dc129350a486d2c35603cf957ccfc3c9e7327bb5745dfe7f0fd7fa6ef399a7662cb3ee257c5f7f9d6436af99fd0c5736bea4              177 Release
+-----BEGIN PGP SIGNATURE-----
+
+iHUEARYKAB0WIQTvz3M3M1ejDukPymTs9b2hYZTndAUCatfBkAAKCRDs9b2hYZTn
+dKGbAP9BVVjX5wYwQvypww0nDgi3P5BwdxvUuS/MgdrUknCDyQD5AZeRAAJetZ8S
+Ry38hU2RTWLDdDTDbH4fTuqWGlOodAQ=
+=JIO6
+-----END PGP SIGNATURE-----
