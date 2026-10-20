@@ -40,11 +40,11 @@ cargo build --release
 ./target/release/acerultrax-cli detect          # shows your sound chip and whether it is supported
 ```
 
-Get the DTS driver for your laptop from Acer's support site (Drivers → Audio, "XPERI DTS" or "DTS Audio"),
-unzip it, then:
+From Acer's support site for your laptop, download the DTS driver ("XPERI DTS") and, for headphone models,
+the DTS app ("XPERI DTS Utility"; both versions if offered). No need to unzip them:
 
 ```sh
-./target/release/acerultrax-cli import ~/Downloads/XPERI_DTS_folder
+./target/release/acerultrax-cli import ~/Downloads/XPERI*DTS*.zip
 ./target/release/acerultrax-cli status
 ./target/release/acerultrax-cli render song.wav song-dts.wav --mode movie --output-device speakers
 ```
@@ -55,6 +55,14 @@ Run DTS on your system's sound:
 ./target/release/acerultrax-daemon              # or: acerultrax-cli autostart on
 ./target/release/acerultrax-cli mode movie      # music, movie, voice, game1-3, custom audio, off
 ./target/release/acerultrax-cli compare on      # same loudness as plain sound, for a fair comparison
+```
+
+Like Windows' DTS app, AcerUltraX can tune for your headphone model (over 500 models from Acer's and DTS's
+databases; Bluetooth and USB headphones are recognised automatically):
+
+```sh
+./target/release/acerultrax-cli headphones hyperx                   # search the models
+./target/release/acerultrax-cli headphone "hyperx cloud core" --device @headphones   # 3.5 mm jack
 ```
 
 AcerUltraX becomes your default output. Pick the device you want in your desktop's sound settings as usual and

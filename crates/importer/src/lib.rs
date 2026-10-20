@@ -5,12 +5,19 @@
 //!
 //! ```text
 //! dts/                 dtstech64.dll and the tuning files for this laptop (the engine's tuning directory)
+//! dts/headphones/      headphone models and their EQs (see [`headphones`])
 //! manifest.toml        what was imported, from where, with checksums
 //! ```
+//!
+//! Sources can be folders or Acer's zip downloads, as they are.
 
 mod detect;
+pub mod headphones;
+mod sources;
 
 pub use detect::{Codec, detect_codecs, laptop_codec};
+pub use headphones::{Catalog, Headphone};
+use sources::Entry;
 
 use std::path::{Path, PathBuf};
 
@@ -83,6 +90,9 @@ pub struct Manifest {
     /// Files the configuration names for external speakers that the package does not contain.
     #[serde(default)]
     pub missing_optional: Vec<String>,
+    /// Headphone models imported (0 without the DTS app package).
+    #[serde(default)]
+    pub headphones: usize,
 }
 
 impl Manifest {
@@ -112,56 +122,27 @@ fn oem_config_name(ssid: &str) -> String {
     format!("dts_apo4_oem_config_{}.xml", ssid.to_ascii_uppercase())
 }
 
-fn sha256(path: &Path) -> Result<String, Error> {
-    let data = std::fs::read(path).map_err(io(path))?;
-    Ok(Sha256::digest(&data).iter().map(|b| format!("{b:02x}")).collect())
+fn sha256(data: &[u8]) -> String {
+    Sha256::digest(data).iter().map(|b| format!("{b:02x}")).collect()
 }
 
-/// A file found in the source folder, with its path split into components. Zip files made on Windows may use
-/// backslashes, which Linux unzip tools keep inside file names, so those count as separators too.
-struct Found {
-    parts: Vec<String>,
-    path: PathBuf,
+fn read(e: &Entry) -> Result<Vec<u8>, Error> {
+    e.read().map_err(io(Path::new(&e.describe())))
 }
 
-impl Found {
-    fn name(&self) -> &str {
-        self.parts.last().map_or("", |s| s.as_str())
-    }
-
-    fn parent(&self) -> &[String] {
-        &self.parts[..self.parts.len().saturating_sub(1)]
-    }
-}
-
-/// Recursively list files under `dir`, skipping unreadable entries.
-fn walk(dir: &Path, prefix: &[String], out: &mut Vec<Found>) {
-    let Ok(rd) = std::fs::read_dir(dir) else { return };
-    for e in rd.flatten() {
-        let p = e.path();
-        let mut parts = prefix.to_vec();
-        parts.extend(e.file_name().to_string_lossy().split('\\').filter(|s| !s.is_empty()).map(String::from));
-        match std::fs::metadata(&p) {
-            Ok(m) if m.is_dir() => walk(&p, &parts, out),
-            Ok(m) if m.is_file() => out.push(Found { parts, path: p }),
-            _ => {}
-        }
-    }
-}
-
-/// Import from an extracted Acer DTS driver package (or any folder holding `dtstech64.dll` and the laptop's
-/// tuning files) into `data_dir`, replacing a previous import.
-pub fn import_from_dir(src: &Path, ssid: &str, data_dir: &Path) -> Result<Manifest, Error> {
+/// Import from Acer's downloads (the DTS driver package, and optionally the DTS app package for headphone
+/// models), as zip files or extracted folders, into `data_dir`, replacing a previous import.
+pub fn import(srcs: &[PathBuf], ssid: &str, data_dir: &Path) -> Result<Manifest, Error> {
     let ssid = ssid.to_ascii_uppercase();
-    let mut files = Vec::new();
-    walk(src, &[], &mut files);
+    let src = srcs.first().cloned().unwrap_or_default();
+    let files = sources::collect(srcs);
     let find = |name: &str| files.iter().find(|f| f.name().eq_ignore_ascii_case(name));
-    let engine = find("dtstech64.dll").ok_or_else(|| Error::NoEngine(src.to_path_buf()))?.path.clone();
+    let engine = find("dtstech64.dll").ok_or_else(|| Error::NoEngine(src.clone()))?;
     let config_name = oem_config_name(&ssid);
-    let config = find(&config_name).ok_or_else(|| Error::NoTuning { ssid: ssid.clone(), dir: src.to_path_buf() })?;
+    let config = find(&config_name).ok_or_else(|| Error::NoTuning { ssid: ssid.clone(), dir: src.clone() })?;
 
     // Check the tuning before touching the existing installation.
-    let xml = std::fs::read_to_string(&config.path).map_err(io(&config.path))?;
+    let xml = String::from_utf8_lossy(&read(config)?).into_owned();
     let oem = dts_eagle::OemConfig::parse(&xml)?;
     for out in [dts_eagle::Output::Speakers, dts_eagle::Output::Headphones] {
         for mode in dts_eagle::Mode::ALL {
@@ -187,12 +168,12 @@ pub fn import_from_dir(src: &Path, ssid: &str, data_dir: &Path) -> Result<Manife
         }
         same
     });
-    let mut sources = vec![(config_name.clone(), config.path.clone())];
+    let mut sources = vec![(config_name.clone(), config)];
     let mut missing_optional = Vec::new();
     for (name, required) in &wanted {
         // Tuning files sit next to the OEM configuration.
         match files.iter().find(|f| f.parent() == config.parent() && f.name().eq_ignore_ascii_case(name)) {
-            Some(f) => sources.push((name.clone(), f.path.clone())),
+            Some(f) => sources.push((name.clone(), f)),
             None if *required => return Err(Error::Incomplete { ssid, what: format!("missing {name}") }),
             None => missing_optional.push(name.clone()),
         }
@@ -205,21 +186,33 @@ pub fn import_from_dir(src: &Path, ssid: &str, data_dir: &Path) -> Result<Manife
         std::fs::remove_dir_all(&staging).map_err(io(&staging))?;
     }
     std::fs::create_dir_all(&staging).map_err(io(&staging))?;
-    std::fs::copy(&engine, staging.join("dtstech64.dll")).map_err(io(&engine))?;
+    let engine_bytes = read(engine)?;
+    let p = staging.join("dtstech64.dll");
+    std::fs::write(&p, &engine_bytes).map_err(io(&p))?;
     let mut hashes = Vec::new();
-    for (name, path) in &sources {
-        std::fs::copy(path, staging.join(name)).map_err(io(path))?;
-        hashes.push((name.clone(), sha256(path)?));
+    for (name, e) in &sources {
+        let bytes = read(e)?;
+        let p = staging.join(name);
+        std::fs::write(&p, &bytes).map_err(io(&p))?;
+        hashes.push((name.clone(), sha256(&bytes)));
     }
-    let engine_sha256 = sha256(&engine)?;
+    let headphones = match headphones::import(&files, &staging) {
+        Ok(n) => n,
+        Err(e) => {
+            log::warn!("headphone models not imported: {e}");
+            0
+        }
+    };
+    let engine_sha256 = sha256(&engine_bytes);
     let manifest = Manifest {
         support: support(&ssid),
         ssid,
-        source: src.to_path_buf(),
+        source: src.clone(),
         engine_verified: VERIFIED_ENGINES.contains(&engine_sha256.as_str()),
         engine_sha256,
         files: hashes,
         missing_optional,
+        headphones,
     };
     if dts.exists() {
         std::fs::remove_dir_all(&dts).map_err(io(&dts))?;
@@ -268,7 +261,7 @@ mod tests {
     fn imports_and_replaces() {
         let (src, data) = (tmp("src"), tmp("data"));
         fake_package(&src, "1025ABCD");
-        let m = import_from_dir(&src, "1025abcd", &data).unwrap();
+        let m = import(&[src.clone()], "1025abcd", &data).unwrap();
         assert_eq!(m.support, Support::Experimental);
         assert!(!m.engine_verified);
         let dts = Manifest::dts_dir(&data);
@@ -277,7 +270,7 @@ mod tests {
         assert!(!dts.join("unrelated_1025ABCD.lic").exists());
         assert_eq!(Manifest::load(&data).unwrap().ssid, "1025ABCD");
         // A second import replaces the first cleanly.
-        import_from_dir(&src, "1025ABCD", &data).unwrap();
+        import(&[src.clone()], "1025ABCD", &data).unwrap();
         assert!(!data.join("dts.new").exists());
         std::fs::remove_dir_all(&src).unwrap();
         std::fs::remove_dir_all(&data).unwrap();
@@ -289,12 +282,10 @@ mod tests {
         fake_package(&src, "1025ABCD");
         // Flatten into names like `Ext\Acer1025ABCD\file`, as `unzip` produces for Windows-made archives.
         let flat = tmp("flat3");
-        let mut found = Vec::new();
-        walk(&src, &[], &mut found);
-        for f in &found {
-            std::fs::copy(&f.path, flat.join(f.parts.join("\\"))).unwrap();
+        for f in sources::collect(&[src.clone()]) {
+            std::fs::write(flat.join(f.parts[1..].join("\\")), f.read().unwrap()).unwrap();
         }
-        let m = import_from_dir(&flat, "1025ABCD", &data).unwrap();
+        let m = import(&[flat.clone()], "1025ABCD", &data).unwrap();
         assert_eq!(m.files.len(), 2);
         for d in [src, data, flat] {
             std::fs::remove_dir_all(d).unwrap();
@@ -305,9 +296,9 @@ mod tests {
     fn reports_missing_tuning() {
         let (src, data) = (tmp("src2"), tmp("data2"));
         fake_package(&src, "1025ABCD");
-        assert!(matches!(import_from_dir(&src, "10251234", &data), Err(Error::NoTuning { .. })));
+        assert!(matches!(import(&[src.clone()], "10251234", &data), Err(Error::NoTuning { .. })));
         std::fs::remove_file(src.join("Ext/Acer1025ABCD/CTC_1025ABCD.bin")).unwrap();
-        assert!(matches!(import_from_dir(&src, "1025ABCD", &data), Err(Error::Incomplete { .. })));
+        assert!(matches!(import(&[src.clone()], "1025ABCD", &data), Err(Error::Incomplete { .. })));
         assert!(!Manifest::dts_dir(&data).exists(), "failed imports leave nothing behind");
         std::fs::remove_dir_all(&src).unwrap();
         std::fs::remove_dir_all(&data).unwrap();

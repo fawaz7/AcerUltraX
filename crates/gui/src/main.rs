@@ -196,12 +196,59 @@ pub fn friendly_name(kind: &str, name: &str) -> String {
     }
 }
 
+/// "Headphones: <model>" with a searchable list, as Windows' DTS app offers (its EQ replaces Acer's default
+/// headphone EQ). Wired: Acer's default first; Bluetooth/USB: automatic recognition first.
+fn headphone_picker(d: &Value, models: &[Value]) -> gtk::Box {
+    let wired = d["kind"].as_str() == Some("headphones");
+    let mut ids: Vec<Option<String>> = vec![if wired { Some("default".into()) } else { None }];
+    let mut names =
+        vec![if wired { "Acer's headphone tuning".to_string() } else { "Recognise automatically".to_string() }];
+    if !wired {
+        ids.push(Some("default".into()));
+        names.push("Acer's headphone tuning".into());
+    }
+    for m in models {
+        ids.push(m["id"].as_str().map(String::from));
+        names.push(
+            format!("{} {}", m["brand"].as_str().unwrap_or(""), m["name"].as_str().unwrap_or("")).trim().to_string(),
+        );
+    }
+    let drop = gtk::DropDown::from_strings(&names.iter().map(String::as_str).collect::<Vec<_>>());
+    drop.set_enable_search(true);
+    drop.set_search_match_mode(gtk::StringFilterMatchMode::Substring);
+    drop.set_expression(Some(gtk::PropertyExpression::new(
+        gtk::StringObject::static_type(),
+        None::<gtk::Expression>,
+        "string",
+    )));
+    drop.update_property(&[gtk::accessible::Property::Label("Headphone model")]);
+    // The automatic choice shows as "Recognise automatically"; a chosen model (or "default") as itself.
+    let current =
+        if d["headphone_auto"].as_bool() == Some(true) { None } else { d["headphone"].as_str().map(String::from) };
+    let current = if wired && current.is_none() { Some("default".into()) } else { current };
+    if let Some(i) = ids.iter().position(|x| *x == current) {
+        drop.set_selected(i as u32);
+    }
+    let device = d["device"].as_str().unwrap_or("").to_string();
+    drop.connect_selected_notify(move |dd| {
+        if let Some(id) = ids.get(dd.selected() as usize) {
+            client::set_headphone(id.as_deref(), &device);
+        }
+    });
+    let row = hbox(8);
+    row.set_margin_top(6);
+    row.append(&label("Headphones:", &["muted", "small"]));
+    row.append(&drop);
+    row
+}
+
 fn fill_devices(ui: &Rc<Ui>, devices: &[Value]) {
     while let Some(c) = ui.devices_box.first_child() {
         ui.devices_box.remove(&c);
     }
     let profiles = client::profiles();
     let labels: Vec<String> = profiles.iter().map(|p| client::label(p)).collect();
+    let models = client::headphones();
     let group_of = |d: &Value| match d["kind"].as_str().unwrap_or("") {
         "speakers" | "headphones" => "LAPTOP",
         "bluetooth" | "bluetooth-speaker" => "BLUETOOTH",
@@ -229,10 +276,15 @@ fn fill_devices(ui: &Rc<Ui>, devices: &[Value]) {
             "Ready"
         } else if group == "BLUETOOTH" {
             "Not connected"
+        } else if kind == "speakers" {
+            "Not in use"
         } else {
             "Not plugged in"
         };
         text.append(&label(&format!("{state} · {}", kind_text(kind)), &["muted", "small"]));
+        if d["wearable"].as_bool() == Some(true) && !models.is_empty() {
+            text.append(&headphone_picker(d, &models));
+        }
         row.append(&text);
         let drop = gtk::DropDown::from_strings(&labels.iter().map(String::as_str).collect::<Vec<_>>());
         drop.set_valign(Align::Center);

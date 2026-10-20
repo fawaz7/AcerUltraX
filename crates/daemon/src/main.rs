@@ -62,7 +62,9 @@ fn main() -> Result<()> {
             }
         })
         .register();
-    let router = Router::new(core, mainloop.loop_(), lib, oem, opts)?;
+    let catalog = importer::Catalog::load(&Manifest::dts_dir(&data));
+    log::info!("{} headphone models", catalog.headphones.len());
+    let router = Router::new(core, mainloop.loop_(), lib, oem, catalog, opts)?;
 
     let registry = router.borrow().registry();
     let (r1, r2) = (router.clone(), router.clone());

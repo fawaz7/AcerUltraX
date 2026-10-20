@@ -54,6 +54,8 @@ struct NodeInfo {
     class: String,
     priority: i32,
     bluetooth: bool,
+    /// A USB audio device (headsets and dongles): may take a headphone model.
+    usb: bool,
     hardware: bool,
     /// The PipeWire device it belongs to (its form factor tells headphones from speakers).
     device: Option<u32>,
@@ -100,6 +102,8 @@ pub struct Status {
     pub compare: bool,
     pub rate: u32,
     pub streams: usize,
+    /// Headphone model in use ("Brand Name"), if any.
+    pub headphone: Option<String>,
 }
 
 #[derive(serde::Serialize)]
@@ -110,6 +114,11 @@ pub struct DeviceStatus {
     pub profile: String,
     pub active: bool,
     pub present: bool,
+    /// Whether this output takes a headphone model, the chosen model id (`default`: Acer's), and whether it
+    /// was recognised automatically.
+    pub wearable: bool,
+    pub headphone: Option<String>,
+    pub headphone_auto: bool,
 }
 
 pub struct Router {
@@ -141,7 +150,8 @@ pub struct Router {
     out_links: Vec<Link>,
     /// Profile in effect and the (mode, tuning, rate) its engines were built for.
     profile: Option<Profile>,
-    built: Option<(dts_eagle::Mode, dts_eagle::Output, u32)>,
+    built: Option<Build>,
+    catalog: importer::Catalog,
     dirty_since: Option<Instant>,
     volume_quiet_until: Instant,
     /// Prevents a sink volume set before the device's is known from reaching the device.
@@ -150,6 +160,16 @@ pub struct Router {
 }
 
 pub type RouterRc = Rc<RefCell<Router>>;
+
+/// What the engines in use were built for.
+#[derive(Clone, PartialEq, Debug)]
+struct Build {
+    mode: dts_eagle::Mode,
+    tuning: dts_eagle::Output,
+    rate: u32,
+    /// Headphone EQ files (48k, 44k) replacing Acer's default headphone EQ.
+    eq: Option<[String; 2]>,
+}
 
 fn prop<'a>(d: &'a DictRef, k: &str) -> Option<&'a str> {
     d.get(k)
@@ -161,6 +181,7 @@ impl Router {
         loop_: &pipewire::loop_::Loop,
         lib: &'static dts_eagle::Library,
         oem: Arc<dts_eagle::OemConfig>,
+        catalog: importer::Catalog,
         opts: Options,
     ) -> anyhow::Result<RouterRc> {
         let registry = core.get_registry_rc()?;
@@ -214,6 +235,7 @@ impl Router {
             out_links: Vec::new(),
             profile: None,
             built: None,
+            catalog,
             dirty_since: None,
             volume_quiet_until: Instant::now(),
             volume_synced: false,
@@ -365,6 +387,7 @@ impl Router {
                     class,
                     priority: prop(props, "priority.session").and_then(|p| p.parse().ok()).unwrap_or(0),
                     bluetooth: api == "bluez5",
+                    usb: prop(props, "device.bus") == Some("usb"),
                     hardware: prop(props, "device.id").is_some(),
                     device: prop(props, "device.id").and_then(|d| d.parse().ok()),
                 },
@@ -621,9 +644,9 @@ impl Router {
             unsafe { libc::malloc_trim(0) };
         }
         let rate = self.shared.rate.load(Ordering::Relaxed);
-        if let Some((m, o, r)) = self.built {
-            if rate != 0 && rate != r {
-                self.build(m, o, rate);
+        if let Some(b) = self.built.clone() {
+            if rate != 0 && rate != b.rate {
+                self.build(Build { rate, ..b });
             }
         }
         match self.dirty_since {
@@ -687,16 +710,67 @@ impl Router {
         let profile = self.config.profile_for(&n.name, kind);
         self.shared.bypass.store(!self.config.enabled || profile.dts_mode().is_none(), Ordering::Relaxed);
         if let Some(mode) = profile.dts_mode() {
-            let tuning = kind.tuning();
             let rate = match self.shared.rate.load(Ordering::Relaxed) {
                 0 => 48000,
                 r => r,
             };
-            if self.built.is_none_or(|(m, o, r)| (m, o, r) != (mode, tuning, rate)) {
-                self.build(mode, tuning, rate);
+            let eq = self.headphone_for(n, kind).map(|(h, route)| [h.eq_file(route, "48k"), h.eq_file(route, "44k")]);
+            let b = Build { mode, tuning: kind.tuning(), rate, eq };
+            if self.built.as_ref() != Some(&b) {
+                self.build(b);
             }
         }
         self.profile = Some(profile);
+    }
+
+    /// Settings key of an output's headphone model.
+    fn headphone_key(&self, n: &NodeInfo, kind: Kind) -> String {
+        if kind == Kind::Headphones { "@headphones".into() } else { n.name.clone() }
+    }
+
+    /// The headphone model in use on an output and the connection whose EQ to use, if any: the user's choice,
+    /// else the model whose Bluetooth/USB name matches the device's.
+    fn headphone_for(&self, n: &NodeInfo, kind: Kind) -> Option<(&importer::Headphone, &'static str)> {
+        let route = match kind {
+            Kind::Headphones => "line-out",
+            Kind::Bluetooth => "bluetooth",
+            Kind::Other if n.usb => "usb",
+            _ => return None,
+        };
+        let h = match self.config.headphones.get(&self.headphone_key(n, kind)).map(String::as_str) {
+            Some("default") => None,
+            Some(id) => self.catalog.get(id),
+            None if kind != Kind::Headphones => self.catalog.match_device(&n.description),
+            None => None,
+        }?;
+        let r = h.route_for(route)?;
+        Some((h, ["line-out", "bluetooth", "usb"].into_iter().find(|x| *x == r).unwrap_or("line-out")))
+    }
+
+    pub fn headphones(&self) -> &[importer::Headphone] {
+        &self.catalog.headphones
+    }
+
+    /// Use headphone model `id` (None: automatic / Acer's default; "default": always Acer's default) on
+    /// `device` (as in [`Router::devices`]; default: the current output).
+    pub fn set_headphone(&mut self, id: Option<&str>, device: Option<&str>) -> Result<(), String> {
+        if let Some(id) = id.filter(|i| *i != "default") {
+            self.catalog.get(id).ok_or_else(|| format!("no headphone model {id:?}"))?;
+        }
+        let key = match device {
+            Some(d) => d.to_string(),
+            None => {
+                let n = self.target.and_then(|t| self.nodes.get(&t)).ok_or("no output device")?;
+                self.headphone_key(n, self.kind(n))
+            }
+        };
+        match id {
+            Some(i) => self.config.headphones.insert(key, i.to_string()),
+            None => self.config.headphones.remove(&key),
+        };
+        self.config.save();
+        self.apply_profile();
+        Ok(())
     }
 
     fn remember_bluetooth(&mut self) {
@@ -714,13 +788,24 @@ impl Router {
     }
 
     /// Prepare a mode's engines on a worker thread; the audio thread picks them up.
-    fn build(&mut self, mode: dts_eagle::Mode, tuning: dts_eagle::Output, rate: u32) {
-        self.built = Some((mode, tuning, rate));
+    fn build(&mut self, b: Build) {
+        self.built = Some(b.clone());
+        let Build { mode, tuning, rate, eq } = b;
         if !dts_eagle::RATES.contains(&rate) {
             log::warn!("DTS cannot run at {rate} Hz; passing audio through");
             return;
         }
-        let Some(t) = self.oem.tuning(mode, tuning).cloned() else { return };
+        let Some(mut t) = self.oem.tuning(mode, tuning).cloned() else { return };
+        if let Some([e48, e44]) = &eq {
+            // As Windows does when a headphone model is picked: its EQ replaces the default headphone EQ.
+            for s in &mut t.settings {
+                match s.name.as_str() {
+                    "Eagle-HPEQ Blob 48k" => s.value = e48.clone(),
+                    "Eagle-HPEQ Blob 44k" => s.value = e44.clone(),
+                    _ => {}
+                }
+            }
+        }
         let (lib, shared) = (self.lib, self.shared.clone());
         let spawned = std::thread::Builder::new().name("dts-build".into()).stack_size(8 << 20).spawn(move || {
             match audio_graph::Prepared::build(lib, &t, rate) {
@@ -731,7 +816,10 @@ impl Router {
         if let Err(e) = spawned {
             log::error!("cannot start a worker thread: {e}");
         }
-        log::info!("mode {mode}, {tuning:?} tuning, {rate} Hz");
+        log::info!(
+            "mode {mode}, {tuning:?} tuning, {rate} Hz{}",
+            eq.map(|e| format!(", headphone EQ {}", e[0])).unwrap_or_default()
+        );
     }
 
     // ---------------------------------------------------------------- volume
@@ -770,6 +858,29 @@ impl Router {
             compare: self.shared.match_loudness.load(Ordering::Relaxed),
             rate: self.shared.rate.load(Ordering::Relaxed),
             streams: self.slots.len(),
+            headphone: n
+                .and_then(|n| self.headphone_for(n, self.kind(n)))
+                .map(|(h, _)| format!("{} {}", h.brand, h.name)),
+        }
+    }
+
+    /// The headphone part of a device entry (the other fields are filled by the caller).
+    fn headphone_status(&self, key: &str, kind: Kind, description: &str, usb: bool) -> DeviceStatus {
+        let wearable = matches!(kind, Kind::Headphones | Kind::Bluetooth) || (kind == Kind::Other && usb);
+        let chosen = self.config.headphones.get(key).cloned();
+        let auto = (wearable && chosen.is_none() && kind != Kind::Headphones)
+            .then(|| self.catalog.match_device(description).map(|h| h.id.clone()))
+            .flatten();
+        DeviceStatus {
+            device: String::new(),
+            device_name: String::new(),
+            kind,
+            profile: String::new(),
+            active: false,
+            present: false,
+            wearable,
+            headphone_auto: auto.is_some(),
+            headphone: chosen.or(auto),
         }
     }
 
@@ -787,6 +898,7 @@ impl Router {
                 profile: self.config.profile_for(present.map_or("", |n| n.name.as_str()), kind).name,
                 active: active.as_ref().is_some_and(|a| a.1 == kind),
                 present: present.is_some(),
+                ..self.headphone_status(&format!("@{}", crate::config::kind_key(kind)), kind, name, false)
             });
         }
         let mut rest: Vec<DeviceStatus> = self
@@ -802,6 +914,7 @@ impl Router {
                     profile: self.config.profile_for(&n.name, kind).name,
                     active: active.as_ref().is_some_and(|a| a.0 == n.name),
                     present: true,
+                    ..self.headphone_status(&n.name, kind, &n.description, n.usb)
                 }
             })
             .collect();
@@ -814,6 +927,7 @@ impl Router {
                     profile: self.config.profile_for(name, *kind).name,
                     active: false,
                     present: false,
+                    ..self.headphone_status(name, *kind, desc, false)
                 });
             }
         }

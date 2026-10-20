@@ -46,6 +46,14 @@ pub fn profiles() -> Vec<String> {
         .unwrap_or_default()
 }
 
+pub fn headphones() -> Vec<Value> {
+    request(json!({"cmd": "headphones"})).ok().and_then(|v| v.as_array().cloned()).unwrap_or_default()
+}
+
+pub fn set_headphone(id: Option<&str>, device: &str) {
+    let _ = request(json!({"cmd": "set-headphone", "id": id, "device": device}));
+}
+
 pub fn devices() -> Vec<Value> {
     request(json!({"cmd": "devices"})).ok().and_then(|v| v.as_array().cloned()).unwrap_or_default()
 }

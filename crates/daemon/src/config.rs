@@ -57,6 +57,10 @@ pub struct Config {
     pub devices: BTreeMap<String, String>,
     /// User-made profiles (the built-in ones are always available).
     pub profiles: Vec<Profile>,
+    /// Headphone model per output (`@headphones` for the 3.5 mm jack, else the device's node name): a model id
+    /// from the headphone catalog, or `default` for Acer's own headphone EQ. Unset: recognised automatically
+    /// for Bluetooth/USB headphones, else Acer's default.
+    pub headphones: BTreeMap<String, String>,
 }
 
 impl Default for Config {
@@ -73,6 +77,7 @@ impl Default for Config {
             defaults: defaults.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(),
             devices: BTreeMap::new(),
             profiles: Vec::new(),
+            headphones: BTreeMap::new(),
         }
     }
 }

@@ -2,6 +2,7 @@
 //!
 //! Requests: `{"cmd":"status"}`, `{"cmd":"profiles"}`, `{"cmd":"devices"}`,
 //! `{"cmd":"set-profile","name":"Movie"}` (optional `"device"`: a device's node name; default the current one),
+//! `{"cmd":"headphones"}` (models), `{"cmd":"set-headphone","id":"<model id>"|"default"|null,"device":...}`,
 //! `{"cmd":"enable","on":false}` (DTS everywhere), `{"cmd":"compare","on":true}`, `{"cmd":"reload"}`.
 
 use std::io::{BufRead, BufReader, Write};
@@ -65,6 +66,11 @@ pub fn handle(r: &mut Router, req: &Value) -> Value {
             }
             None => err("missing name".into()),
         },
+        "headphones" => ok(serde_json::to_value(r.headphones()).unwrap()),
+        "set-headphone" => {
+            let id = req.get("id").and_then(Value::as_str);
+            r.set_headphone(id, req.get("device").and_then(Value::as_str)).map_or_else(err, |_| ok(Value::Null))
+        }
         "enable" => {
             r.set_enabled(req.get("on").and_then(Value::as_bool).unwrap_or(true));
             ok(Value::Null)

@@ -24,10 +24,12 @@ struct Cli {
 enum Command {
     /// Show the laptop's sound chip and whether AcerUltraX supports it.
     Detect,
-    /// Set up the DTS files from a folder with Acer's extracted DTS driver package.
+    /// Set up the DTS files from Acer's downloads for your laptop: the DTS driver ("XPERI DTS") and, for
+    /// headphone models, the DTS app ("XPERI DTS Utility"). Zip files or extracted folders.
     Import {
-        /// Folder to search (subfolders included).
-        source: PathBuf,
+        /// Zip files or folders (searched recursively).
+        #[arg(required = true)]
+        sources: Vec<PathBuf>,
         /// Sound chip subsystem ID to import the tuning for (default: this laptop's).
         #[arg(long)]
         ssid: Option<String>,
@@ -43,6 +45,16 @@ enum Command {
     },
     /// List output devices with the profile each uses.
     Devices,
+    /// List headphone models (optionally only those matching a search).
+    Headphones { search: Option<String> },
+    /// Use a headphone model's EQ, as picked in Windows' DTS app: a name (e.g. "hyperx cloud core"),
+    /// `default` for Acer's headphone EQ, or `auto` to recognise Bluetooth/USB headphones by name.
+    Headphone {
+        model: String,
+        /// Output to set it for (from `devices`; default: the current one; `@headphones` = 3.5 mm jack).
+        #[arg(long)]
+        device: Option<String>,
+    },
     /// List the available profiles.
     Profiles,
     /// Turn DTS on or off everywhere.
@@ -91,10 +103,45 @@ fn main() -> Result<()> {
     let data = cli.data_dir.unwrap_or_else(importer::data_dir);
     match cli.command {
         Command::Detect => detect(),
-        Command::Import { source, ssid } => import(&source, ssid, &data),
+        Command::Import { sources, ssid } => import(&sources, ssid, &data),
         Command::Status => status(&data),
         Command::Mode { name, device } => {
             daemon(json!({"cmd": "set-profile", "name": name, "device": device})).map(|_| ())
+        }
+        Command::Headphones { search } => {
+            for h in find_headphones(search.as_deref().unwrap_or(""))? {
+                println!(
+                    "{:40} {:20} {}",
+                    format!("{} {}", h["brand"].as_str().unwrap_or(""), h["name"].as_str().unwrap_or("")),
+                    h["style"].as_str().unwrap_or(""),
+                    routes_text(&h)
+                );
+            }
+            Ok(())
+        }
+        Command::Headphone { model, device } => {
+            let id = match model.to_lowercase().as_str() {
+                "auto" => None,
+                "default" => Some("default".to_string()),
+                q => {
+                    let found = find_headphones(q)?;
+                    let full = |h: &serde_json::Value| {
+                        format!("{} {}", h["brand"].as_str().unwrap_or(""), h["name"].as_str().unwrap_or(""))
+                            .to_lowercase()
+                    };
+                    let pick =
+                        found.iter().find(|h| full(h) == q).or(if found.len() == 1 { found.first() } else { None });
+                    match pick {
+                        Some(h) => Some(h["id"].as_str().unwrap_or("").to_string()),
+                        None if found.is_empty() => bail!("no headphone model matches {model:?}"),
+                        None => bail!(
+                            "{} models match {model:?}; be more specific (see `acerultrax-cli headphones {model}`)",
+                            found.len()
+                        ),
+                    }
+                }
+            };
+            daemon(json!({"cmd": "set-headphone", "id": id, "device": device})).map(|_| ())
         }
         Command::Devices => {
             for d in daemon(json!({"cmd": "devices"}))?.as_array().into_iter().flatten() {
@@ -158,15 +205,19 @@ fn detect() -> Result<()> {
     Ok(())
 }
 
-fn import(source: &Path, ssid: Option<String>, data: &Path) -> Result<()> {
+fn import(sources: &[PathBuf], ssid: Option<String>, data: &Path) -> Result<()> {
     let ssid = match ssid {
         Some(s) => s,
         None => importer::laptop_codec().context("no Acer sound chip found; pass --ssid")?.ssid,
     };
     std::fs::create_dir_all(data).with_context(|| format!("creating {}", data.display()))?;
-    let m = importer::import_from_dir(source, &ssid, data)?;
+    let m = importer::import(sources, &ssid, data)?;
     println!("Imported DTS tuning for {} ({}) into {}", m.ssid, support_text(&m.ssid), data.display());
     println!("{} tuning files", m.files.len());
+    match m.headphones {
+        0 => println!("No headphone models (add Acer's \"XPERI DTS Utility\" download to get them)"),
+        n => println!("{n} headphone models"),
+    }
     if !m.engine_verified {
         println!("Note: this dtstech64.dll build has not been verified with AcerUltraX yet.");
     }
@@ -191,6 +242,9 @@ fn status(data: &Path) -> Result<()> {
             println!("DTS:            {}", if s["enabled"].as_bool() == Some(false) { "off" } else { "on" });
             println!("Output:         {} ({})", txt("device_name"), txt("kind"));
             println!("Profile:        {}", txt("profile"));
+            if let Some(h) = s["headphone"].as_str() {
+                println!("Headphones:     {h}");
+            }
             println!("Comparison:     {}", if s["compare"].as_bool() == Some(true) { "on" } else { "off" });
             println!("Apps:           {}", s["streams"]);
         }
@@ -198,6 +252,37 @@ fn status(data: &Path) -> Result<()> {
     }
     println!("Autostart:      {}", if autostart::enabled() { "on" } else { "off" });
     Ok(())
+}
+
+fn find_headphones(q: &str) -> Result<Vec<serde_json::Value>> {
+    let q = q.to_lowercase();
+    let all = daemon(json!({"cmd": "headphones"}))?;
+    Ok(all
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|h| {
+            format!("{} {}", h["brand"].as_str().unwrap_or(""), h["name"].as_str().unwrap_or(""))
+                .to_lowercase()
+                .contains(&q)
+        })
+        .cloned()
+        .collect())
+}
+
+fn routes_text(h: &serde_json::Value) -> String {
+    let names: Vec<&str> = h["routes"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|r| match r.as_str()? {
+            "line-out" => Some("3.5 mm"),
+            "bluetooth" => Some("Bluetooth"),
+            "usb" => Some("USB"),
+            _ => None,
+        })
+        .collect();
+    names.join(", ")
 }
 
 /// Send one request to the background service and return its result.
