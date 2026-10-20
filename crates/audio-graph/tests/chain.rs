@@ -102,3 +102,49 @@ fn per_stream_engines_mix_then_mfx() {
         .join()
         .unwrap();
 }
+
+/// Silent streams rest and output exact silence; sound afterwards is processed again.
+#[test]
+fn idle_streams_rest_and_resume() {
+    let Some(vendor) = std::env::var_os("ACERULTRAX_VENDOR_DIR").map(PathBuf::from) else {
+        eprintln!("skipped: set ACERULTRAX_VENDOR_DIR");
+        return;
+    };
+    let lib = Library::load(&vendor.join("dtstech64.dll"), Some(&vendor)).unwrap();
+    let xml = std::fs::read_dir(&vendor)
+        .unwrap()
+        .flatten()
+        .map(|e| e.path())
+        .find(|p| p.file_name().unwrap().to_string_lossy().starts_with("dts_apo4_oem_config_"))
+        .unwrap();
+    let oem = OemConfig::parse(&std::fs::read_to_string(xml).unwrap()).unwrap();
+    let tuning = oem.tuning(Mode::Music, Output::Speakers).unwrap().clone();
+    std::thread::Builder::new()
+        .stack_size(8 << 20)
+        .spawn(move || {
+            let rate = 48000;
+            let mut chain = Chain::new(lib);
+            chain.set_mode(Prepared::build(lib, &tuning, rate).unwrap());
+            let zeros = vec![0f32; 1024];
+            let tone = signal(1024, 3);
+            let (mut l, mut r) = (vec![0f32; 1024], vec![0f32; 1024]);
+            let mut run = |x: &[f32], l: &mut [f32], r: &mut [f32]| {
+                let ch = [x, x];
+                chain.process(rate, &[StreamInput { id: 5, channels: &ch }], [l, r]);
+            };
+            run(&tone, &mut l, &mut r);
+            // 4 s of silence: everything comes to rest with exact zeros.
+            for _ in 0..(4 * rate as usize / 1024) {
+                run(&zeros, &mut l, &mut r);
+            }
+            assert!(l.iter().chain(&r).all(|&x| x == 0.0), "resting chain must output exact silence");
+            // The engines have a short processing delay: give them a few blocks.
+            for _ in 0..5 {
+                run(&tone, &mut l, &mut r);
+            }
+            assert!(l.iter().any(|&x| x.abs() > 1e-3), "sound after a pause is processed again");
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+}

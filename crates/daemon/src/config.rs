@@ -11,16 +11,24 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "lowercase")]
 pub enum Kind {
     Speakers,
+    /// Wired headphones (3.5 mm jack, USB headsets).
     Headphones,
+    /// Bluetooth headphones and headsets.
     Bluetooth,
+    #[serde(rename = "bluetooth-speaker")]
+    BluetoothSpeaker,
     Other,
 }
 
 impl Kind {
-    /// DTS tuning for this kind of output: the laptop speakers get the speaker tuning, everything you wear (and
-    /// anything else) the headphone tuning.
+    /// DTS tuning for this kind of output: Acer's tunings for the laptop speakers, for headphones (anything you
+    /// wear), and for external speakers (everything else).
     pub fn tuning(self) -> Output {
-        if self == Kind::Speakers { Output::Speakers } else { Output::Headphones }
+        match self {
+            Kind::Speakers => Output::Speakers,
+            Kind::Headphones | Kind::Bluetooth => Output::Headphones,
+            Kind::BluetoothSpeaker | Kind::Other => Output::ExternalSpeakers,
+        }
     }
 }
 
@@ -51,7 +59,13 @@ pub struct Config {
 
 impl Default for Config {
     fn default() -> Config {
-        let defaults = [("speakers", "Music"), ("headphones", "Music"), ("bluetooth", "Music"), ("other", "Off")];
+        let defaults = [
+            ("speakers", "Music"),
+            ("headphones", "Music"),
+            ("bluetooth", "Music"),
+            ("bluetooth-speaker", "Off"),
+            ("other", "Off"),
+        ];
         Config {
             defaults: defaults.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(),
             devices: BTreeMap::new(),
@@ -75,6 +89,7 @@ fn kind_key(k: Kind) -> &'static str {
         Kind::Speakers => "speakers",
         Kind::Headphones => "headphones",
         Kind::Bluetooth => "bluetooth",
+        Kind::BluetoothSpeaker => "bluetooth-speaker",
         Kind::Other => "other",
     }
 }
@@ -169,6 +184,7 @@ mod tests {
         let mut c = Config::default();
         assert_eq!(c.profile_for("bluez_output.x", Kind::Bluetooth).name, "Music");
         assert_eq!(c.profile_for("hdmi", Kind::Other).dts_mode(), None);
+        assert_eq!(c.profile_for("bluez_output.speaker", Kind::BluetoothSpeaker).dts_mode(), None);
         c.devices.insert("spk".into(), "movie".into());
         assert_eq!(c.profile_for("spk", Kind::Speakers).dts_mode(), Some(Mode::Movie));
         assert_eq!(c.profile("custom audio").unwrap().dts_mode(), Some(Mode::CustomAudio));

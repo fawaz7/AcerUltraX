@@ -52,7 +52,17 @@ struct StreamEngine {
     channels: usize,
     /// None when the stream is not processed by SFX (4 channels) or its engine failed.
     engine: Option<Engine>,
+    /// Consecutive frames of digital silence on this stream's input.
+    silent: usize,
 }
+
+/// An idle stream's engine rests after this many seconds of digital silence (apps often keep a silent stream
+/// open; Windows does not process a stopped stream either). It resumes on the first non-zero sample.
+const STREAM_REST_SECS: usize = 1;
+/// After this long idle, a stream's engine is freed (about 3 MB each) and made afresh when sound returns.
+const STREAM_FREE_SECS: usize = 30;
+/// The mode engine rests once the mix has been silent this long, so its tail has finished.
+const MIX_REST_SECS: usize = 2;
 
 pub struct Chain {
     lib: &'static Library,
@@ -60,6 +70,8 @@ pub struct Chain {
     streams: HashMap<u32, StreamEngine>,
     seen_ids: Vec<u32>,
     mix: [Vec<f32>; 2],
+    /// Consecutive frames of digital silence going into the mode engine.
+    mix_silent: usize,
     /// Pass audio through without DTS (front pairs mixed).
     pub bypass: bool,
     /// Volume applied after DTS, as Windows' endpoint volume (linear).
@@ -77,6 +89,7 @@ impl Chain {
             streams: HashMap::new(),
             seen_ids: Vec::new(),
             mix: [vec![0.0; MAX_FRAMES], vec![0.0; MAX_FRAMES]],
+            mix_silent: 0,
             bypass: false,
             gain: 1.0,
             match_loudness: false,
@@ -133,7 +146,15 @@ impl Chain {
         let mut sfx_out = [[0f32; MAX_BLOCK]; 2];
         for s in streams {
             let ch = s.channels.len();
-            let st = self.streams.entry(s.id).or_insert_with(|| StreamEngine { channels: ch, engine: None });
+            let st = self.streams.entry(s.id).or_insert_with(|| StreamEngine { channels: ch, engine: None, silent: 0 });
+            let silent = s.channels.iter().all(|c| c[..n].iter().all(|&x| x == 0.0));
+            st.silent = if silent { st.silent + n } else { 0 };
+            if st.silent > STREAM_REST_SECS * rate as usize {
+                if st.silent > STREAM_FREE_SECS * rate as usize {
+                    st.engine = None;
+                }
+                continue;
+            }
             if st.channels != ch || (st.engine.is_none() && ch != 4) {
                 st.channels = ch;
                 st.engine = new_stream_engine(self.lib, &mode.sfx_blob, ch, rate);
@@ -165,7 +186,10 @@ impl Chain {
         }
 
         // MFX on the mix, in place.
-        for off in (0..n).step_by(MAX_BLOCK) {
+        let silent = l.iter().chain(r.iter()).all(|&x| x == 0.0);
+        self.mix_silent = if silent { self.mix_silent + n } else { 0 };
+        let resting = self.mix_silent > MIX_REST_SECS * rate as usize;
+        for off in (0..n).step_by(MAX_BLOCK).filter(|_| !resting) {
             let k = (n - off).min(MAX_BLOCK);
             let mut m = [[0f32; MAX_BLOCK]; 2];
             m[0][..k].copy_from_slice(&l[off..off + k]);

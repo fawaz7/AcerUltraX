@@ -69,7 +69,6 @@ impl Filter {
             "media.role" => "DSP",
             "node.autoconnect" => "false",
             "node.description" => "AcerUltraX processing",
-            "node.always-process" => "true",
         };
         let mut events: Box<pw::pw_filter_events> = Box::new(unsafe { std::mem::zeroed() });
         events.version = pw::PW_VERSION_FILTER_EVENTS;

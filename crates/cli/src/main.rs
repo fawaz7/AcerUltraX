@@ -35,7 +35,14 @@ enum Command {
     /// Show what is set up and what the background service is doing.
     Status,
     /// Use a profile (a DTS mode such as music, movie, game1, or off) on the current output device.
-    Mode { name: String },
+    Mode {
+        name: String,
+        /// Another device instead (its name from `devices`).
+        #[arg(long)]
+        device: Option<String>,
+    },
+    /// List output devices with the profile each uses.
+    Devices,
     /// List the available profiles.
     Profiles,
     /// Loudness-matched comparison: turn DTS down to the loudness of the plain sound (on/off).
@@ -84,7 +91,22 @@ fn main() -> Result<()> {
         Command::Detect => detect(),
         Command::Import { source, ssid } => import(&source, ssid, &data),
         Command::Status => status(&data),
-        Command::Mode { name } => daemon(json!({"cmd": "set-profile", "name": name})).map(|_| ()),
+        Command::Mode { name, device } => {
+            daemon(json!({"cmd": "set-profile", "name": name, "device": device})).map(|_| ())
+        }
+        Command::Devices => {
+            for d in daemon(json!({"cmd": "devices"}))?.as_array().into_iter().flatten() {
+                let mark = if d["active"].as_bool() == Some(true) { "*" } else { " " };
+                println!(
+                    "{mark} {:50} {:18} {}",
+                    d["device_name"].as_str().unwrap_or(""),
+                    d["kind"].as_str().unwrap_or(""),
+                    d["profile"].as_str().unwrap_or("")
+                );
+                println!("    {}", d["device"].as_str().unwrap_or(""));
+            }
+            Ok(())
+        }
         Command::Profiles => {
             for p in daemon(json!({"cmd": "profiles"}))?.as_array().into_iter().flatten() {
                 println!("{}", p["name"].as_str().unwrap_or(""));

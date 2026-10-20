@@ -55,6 +55,8 @@ struct NodeInfo {
     priority: i32,
     bluetooth: bool,
     hardware: bool,
+    /// The PipeWire device it belongs to (its form factor tells headphones from speakers).
+    device: Option<u32>,
 }
 
 struct PortInfo {
@@ -99,6 +101,15 @@ pub struct Status {
     pub streams: usize,
 }
 
+#[derive(serde::Serialize)]
+pub struct DeviceStatus {
+    pub device: String,
+    pub device_name: String,
+    pub kind: Kind,
+    pub profile: String,
+    pub active: bool,
+}
+
 pub struct Router {
     core: CoreRc,
     registry: RegistryRc,
@@ -115,6 +126,8 @@ pub struct Router {
     sink_id: Option<u32>,
     filter_id: Option<u32>,
     nodes: HashMap<u32, NodeInfo>,
+    /// Form factor and icon name of each PipeWire device.
+    devices: HashMap<u32, String>,
     ports: HashMap<u32, PortInfo>,
     links: HashMap<u32, (u32, u32)>,
     apps: HashMap<u32, App>,
@@ -131,6 +144,7 @@ pub struct Router {
     volume_quiet_until: Instant,
     /// Prevents a sink volume set before the device's is known from reaching the device.
     volume_synced: bool,
+    ticks: u64,
 }
 
 pub type RouterRc = Rc<RefCell<Router>>;
@@ -187,6 +201,7 @@ impl Router {
             sink_id: None,
             filter_id: None,
             nodes: HashMap::new(),
+            devices: HashMap::new(),
             ports: HashMap::new(),
             links: HashMap::new(),
             apps: HashMap::new(),
@@ -200,6 +215,7 @@ impl Router {
             dirty_since: None,
             volume_quiet_until: Instant::now(),
             volume_synced: false,
+            ticks: 0,
         }));
         let weak = Rc::downgrade(&router);
         let listener = router
@@ -252,6 +268,17 @@ impl Router {
                 if r.claims(i) {
                     r.want(o);
                 }
+            }
+            ObjectType::Device => {
+                // e.g. "headset audio-headset-bluetooth" or "speaker audio-speakers-bluetooth"
+                let what = [prop(props, "device.form-factor"), prop(props, "device.icon-name")]
+                    .into_iter()
+                    .flatten()
+                    .collect::<Vec<_>>()
+                    .join(" ")
+                    .to_lowercase();
+                r.devices.insert(g.id, what);
+                r.mark_dirty();
             }
             ObjectType::Metadata if prop(props, "metadata.name") == Some("default") && r.metadata.is_none() => {
                 let Ok(md) = r.registry.bind::<Metadata, _>(g) else { return };
@@ -337,6 +364,7 @@ impl Router {
                     priority: prop(props, "priority.session").and_then(|p| p.parse().ok()).unwrap_or(0),
                     bluetooth: api == "bluez5",
                     hardware: prop(props, "device.id").is_some(),
+                    device: prop(props, "device.id").and_then(|d| d.parse().ok()),
                 },
             );
             self.mark_dirty();
@@ -353,6 +381,7 @@ impl Router {
         }
         r.ports.remove(&id);
         r.links.remove(&id);
+        r.devices.remove(&id);
         if r.nodes.remove(&id).is_some() {
             if r.target == Some(id) {
                 r.target = None;
@@ -562,13 +591,17 @@ impl Router {
         }
     }
 
-    fn kind(n: &NodeInfo) -> Kind {
-        // shortcut: classified by name, which fits laptops whose speakers and headphones are separate sinks
-        // (UCM); laptops switching ports inside one sink need the active route checked instead.
+    fn kind(&self, n: &NodeInfo) -> Kind {
+        // shortcut: wired outputs are classified by name, which fits laptops whose speakers and headphones are
+        // separate sinks (UCM); laptops switching ports inside one sink need the active route checked instead.
         let lname = n.name.to_lowercase();
+        let device = n.device.and_then(|d| self.devices.get(&d)).map_or("", |s| s.as_str());
+        let worn = ["headphone", "headset", "hands-free", "handsfree"].iter().any(|w| device.contains(w));
         if n.bluetooth {
-            Kind::Bluetooth
-        } else if lname.contains("headphone") || lname.contains("headset") {
+            // Unknown Bluetooth devices count as headphones, by far the most common case on a laptop.
+            let speaker = ["speaker", "portable", "car", "hifi"].iter().any(|w| device.contains(w));
+            if speaker && !worn { Kind::BluetoothSpeaker } else { Kind::Bluetooth }
+        } else if worn || lname.contains("headphone") || lname.contains("headset") {
             Kind::Headphones
         } else if lname.starts_with("alsa_output.pci") && (lname.contains("speaker") || lname.contains("analog")) {
             Kind::Speakers
@@ -580,6 +613,11 @@ impl Router {
     /// Pick the device (debounced: a headphone plug produces a burst of changes) and apply its profile.
     pub fn tick(&mut self) {
         self.check_slots();
+        self.ticks += 1;
+        if self.ticks % 300 == 0 {
+            // Engines of idle apps are freed on the audio thread; hand that memory back to the system.
+            unsafe { libc::malloc_trim(0) };
+        }
         let rate = self.shared.rate.load(Ordering::Relaxed);
         if let Some((m, o, r)) = self.built {
             if rate != 0 && rate != r {
@@ -642,7 +680,7 @@ impl Router {
 
     fn apply_profile(&mut self) {
         let Some(n) = self.target.and_then(|t| self.nodes.get(&t)) else { return };
-        let kind = Self::kind(n);
+        let kind = self.kind(n);
         let profile = self.config.profile_for(&n.name, kind);
         self.shared.bypass.store(profile.dts_mode().is_none(), Ordering::Relaxed);
         if let Some(mode) = profile.dts_mode() {
@@ -707,7 +745,7 @@ impl Router {
         Status {
             device: n.map(|n| n.name.clone()),
             device_name: n.map(|n| n.description.clone()),
-            kind: n.map(Self::kind),
+            kind: n.map(|n| self.kind(n)),
             profile: self.profile.as_ref().map(|p| p.name.clone()),
             mode: self.profile.as_ref().and_then(|p| p.dts_mode()).map(|m| m.to_string()),
             bypass: self.shared.bypass.load(Ordering::Relaxed),
@@ -717,11 +755,35 @@ impl Router {
         }
     }
 
-    /// Use `profile` on the current device from now on.
-    pub fn set_profile(&mut self, profile: &str) -> Result<(), String> {
+    /// Every output device present, with its kind and profile.
+    pub fn devices(&self) -> Vec<DeviceStatus> {
+        let mut v: Vec<DeviceStatus> = self
+            .nodes
+            .iter()
+            .filter(|(_, n)| n.hardware)
+            .map(|(id, n)| {
+                let kind = self.kind(n);
+                DeviceStatus {
+                    device: n.name.clone(),
+                    device_name: n.description.clone(),
+                    kind,
+                    profile: self.config.profile_for(&n.name, kind).name,
+                    active: Some(*id) == self.target,
+                }
+            })
+            .collect();
+        v.sort_by(|a, b| a.device_name.cmp(&b.device_name));
+        v
+    }
+
+    /// Use `profile` on `device` (default: the current one) from now on.
+    pub fn set_profile(&mut self, profile: &str, device: Option<&str>) -> Result<(), String> {
         let p = self.config.profile(profile).ok_or_else(|| format!("no profile named {profile:?}"))?;
-        let n = self.target.and_then(|t| self.nodes.get(&t)).ok_or("no output device")?;
-        self.config.devices.insert(n.name.clone(), p.name.clone());
+        let name = match device {
+            Some(d) => d.to_string(),
+            None => self.target.and_then(|t| self.nodes.get(&t)).ok_or("no output device")?.name.clone(),
+        };
+        self.config.devices.insert(name, p.name.clone());
         self.config.save();
         self.apply_profile();
         Ok(())

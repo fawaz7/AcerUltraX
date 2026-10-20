@@ -1,6 +1,7 @@
 //! Control socket (`$XDG_RUNTIME_DIR/acerultrax.sock`): one JSON request per line, one JSON reply per line.
 //!
-//! Requests: `{"cmd":"status"}`, `{"cmd":"profiles"}`, `{"cmd":"set-profile","name":"Movie"}`,
+//! Requests: `{"cmd":"status"}`, `{"cmd":"profiles"}`, `{"cmd":"devices"}`,
+//! `{"cmd":"set-profile","name":"Movie"}` (optional `"device"`: a device's node name; default the current one),
 //! `{"cmd":"compare","on":true}`, `{"cmd":"reload"}`.
 
 use std::io::{BufRead, BufReader, Write};
@@ -57,8 +58,11 @@ pub fn handle(r: &mut Router, req: &Value) -> Value {
     match req.get("cmd").and_then(Value::as_str).unwrap_or("") {
         "status" => ok(serde_json::to_value(r.status()).unwrap()),
         "profiles" => ok(serde_json::to_value(r.config.all_profiles()).unwrap()),
+        "devices" => ok(serde_json::to_value(r.devices()).unwrap()),
         "set-profile" => match req.get("name").and_then(Value::as_str) {
-            Some(n) => r.set_profile(n).map_or_else(err, |_| ok(Value::Null)),
+            Some(n) => {
+                r.set_profile(n, req.get("device").and_then(Value::as_str)).map_or_else(err, |_| ok(Value::Null))
+            }
             None => err("missing name".into()),
         },
         "compare" => {
