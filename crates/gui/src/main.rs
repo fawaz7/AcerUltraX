@@ -4,6 +4,7 @@
 mod client;
 mod profiles;
 mod tray;
+mod wizard;
 
 use std::cell::{Cell, RefCell};
 use std::path::PathBuf;
@@ -638,6 +639,19 @@ fn main() -> glib::ExitCode {
     app.connect_activate(move |app| {
         if let Some(w) = app.windows().first() {
             w.present();
+            return;
+        }
+        if wizard::needed() {
+            // First run: set up, then open the app (hold it so closing the wizard window does not quit midway).
+            let hold = app.hold();
+            let w = wizard::window(app, move |app| {
+                let _ = &hold;
+                app.activate();
+            });
+            w.present();
+            if let Some(path) = std::env::var_os("ACERULTRAX_SNAPSHOT") {
+                snapshot_and_quit(app, &w, PathBuf::from(path));
+            }
             return;
         }
         let tray = if tray_autostart_file().exists() || hidden {
