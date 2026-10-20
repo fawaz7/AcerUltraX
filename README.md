@@ -67,6 +67,16 @@ before you compare.
 
 Files are stored in `~/.local/share/acerultrax/`.
 
+## Known issues
+
+- **PH16-71: headset microphone on the 3.5 mm jack does not work on Linux kernels from before August 2026.**
+  This is a kernel issue, not AcerUltraX (which never touches microphones); the fix is in Linux (commit
+  `04a8e286bb2e`). On an older kernel, add it as a driver option and reboot:
+
+  ```sh
+  echo 'options snd_sof_intel_hda_generic hda_model=alc2xx-fixup-headset-mic' | sudo tee /etc/modprobe.d/acerultrax-headset-mic.conf
+  ```
+
 ## Roadmap
 
 1. ✅ Native DTS engine, bit-exact with Windows; importer for Acer's driver package
