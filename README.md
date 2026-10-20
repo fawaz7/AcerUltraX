@@ -7,9 +7,14 @@ Audio) made for the laptop's own speakers and for headphones. On Linux the same 
 AcerUltraX runs Acer's original DTS engine natively on Linux, without Wine, and processes your audio the way
 Windows does, sample for sample.
 
-> **Status: early development.** The DTS engine runs natively and matches Windows bit for bit in offline tests,
-> and the background service runs it live on your system's sound. The app window, spatial sound and the
-> profile maker are being built (see [Roadmap](#roadmap)).
+> **Status: beta.** DTS runs natively and matches Windows bit for bit in offline tests; live sound, the app,
+> profiles and headphone models work. Windows' "Spatial sound: DTS:X Ultra" is still to come (see
+> [Roadmap](#roadmap)).
+
+## Install
+
+Arch Linux, CachyOS and other Arch-based systems: `yay -S acerultrax-git`. Then open **AcerUltraX**; a short
+setup takes you through getting the DTS files from Acer. See the **[user guide](docs/USER_GUIDE.md)**.
 
 ## Supported laptops
 
@@ -92,10 +97,11 @@ Files are stored in `~/.local/share/acerultrax/`.
 3. ✅ Live system-wide audio through PipeWire, following the output you pick, headphones and Bluetooth
 4. ✅ Background service, command-line control
 5. ✅ A profile per output device (speakers, wired headphones, Bluetooth), autostart
-6. The app: mode switching, quick loudness-matched comparison, devices, settings
-7. Windows "Spatial sound: DTS:X Ultra"
-8. Profile maker: DTS controls and an equaliser with a live response curve
-9. Packages (AUR first, then .deb/.rpm)
+6. ✅ The app: mode switching, loudness-matched comparison, devices, settings, top-bar icon, first-run setup
+7. ✅ Headphone models (over 500, from Acer's and DTS's databases), recognised automatically over Bluetooth/USB
+8. ✅ Profile maker: equaliser and DTS controls, with the measured response curve
+9. ✅ AUR package; .deb/.rpm to follow
+10. Windows "Spatial sound: DTS:X Ultra"
 
 ## Building and testing
 
@@ -109,6 +115,7 @@ See [docs/TESTING.md](docs/TESTING.md). The code is split into crates under `cra
 | `audio-graph` | The Windows signal chain: an engine per app, mix, mode engine, loudness match |
 | `daemon` | `acerultrax-daemon`: PipeWire routing, device following, profiles, control socket |
 | `cli` | `acerultrax-cli` |
+| `gui` | `acerultrax`: the app and its top-bar icon |
 
 ## Legal
 
