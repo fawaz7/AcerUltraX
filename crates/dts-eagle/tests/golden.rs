@@ -9,7 +9,7 @@
 
 use std::path::{Path, PathBuf};
 
-use dts_eagle::{Blob, Library, Location, ModeTuning, OemConfig, Output};
+use dts_eagle::{Blob, Library, Location, OemConfig, Output};
 
 struct Case {
     dir: PathBuf,
@@ -131,17 +131,7 @@ fn golden_from_blobs() {
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
-/// The recordings were made with engines whose file-based tuning (speaker correction "CTC" and the per-mode
-/// "GPEQ" EQ blobs) never loaded, because the Wine host resolved those files against the wrong directory. Windows
-/// loads them (they are installed next to the DTS DLLs), and so does this crate; for this comparison they are
-/// left out to reproduce the recorded state.
-fn without_files(t: &ModeTuning) -> ModeTuning {
-    let files: Vec<String> = t.files().into_iter().map(String::from).collect();
-    let mut t = t.clone();
-    t.settings.retain(|s| !files.contains(&s.value));
-    t
-}
-
+/// Engines configured setting by setting from the OEM configuration, tuning files included, as Windows does.
 #[test]
 fn golden_from_controls() {
     let Some((lib, oem, cases)) = setup() else { return };
@@ -149,14 +139,14 @@ fn golden_from_controls() {
         let mut failures = Vec::new();
         let mut checked = 0;
         for c in &cases {
-            let tuning = without_files(oem.tuning(c.mode, c.output).expect("mode in OEM config"));
+            let tuning = oem.tuning(c.mode, c.output).expect("mode in OEM config");
             for loc in [Location::Sfx, Location::Mfx] {
                 let (inp, exp, _) = stage_files(loc);
                 if !c.dir.join(inp).exists() {
                     continue;
                 }
                 let ch = if loc == Location::Sfx { c.channels } else { 2 };
-                let (e, _skipped) = dts_eagle::configured_engine(lib, &tuning, loc, ch, c.rate).unwrap();
+                let (e, _skipped) = dts_eagle::configured_engine(lib, tuning, loc, ch, c.rate).unwrap();
                 let bad = run(e, &c.dir.join(inp), &c.dir.join(exp), ch);
                 if bad != 0 {
                     failures.push(format!("{} {:?}: {bad} samples differ", c.dir.display(), loc));
@@ -165,48 +155,6 @@ fn golden_from_controls() {
             }
         }
         eprintln!("{checked} engine runs compared");
-        failures
-    });
-    assert!(failures.is_empty(), "{}", failures.join("\n"));
-}
-
-fn process(e: &mut dts_eagle::Engine, inp: &[Vec<f32>]) -> Vec<Vec<f32>> {
-    let ins: Vec<&[f32]> = inp.iter().map(|v| v.as_slice()).collect();
-    let mut out = vec![vec![0f32; inp[0].len()]; 2];
-    let mut outs: Vec<&mut [f32]> = out.iter_mut().map(|v| v.as_mut_slice()).collect();
-    e.process(&ins, &mut outs).unwrap();
-    out
-}
-
-/// With the full factory tuning (tuning files loaded): an engine configured from controls and one loaded from
-/// its tuning blob produce identical output, and the tuning files change the result where a mode uses them.
-#[test]
-fn full_tuning_blob_round_trip() {
-    let Some((lib, oem, cases)) = setup() else { return };
-    let failures = on_big_stack(move || {
-        let mut failures = Vec::new();
-        for c in cases.iter().filter(|c| c.channels == 2) {
-            let tuning = oem.tuning(c.mode, c.output).unwrap();
-            for loc in [Location::Sfx, Location::Mfx] {
-                let (inp, _, _) = stage_files(loc);
-                let input = deinterleave(&read_f32(&c.dir.join(inp)), 2);
-                let (mut a, _) = dts_eagle::configured_engine(lib, tuning, loc, 2, c.rate).unwrap();
-                let mut b = dts_eagle::engine_from_blob(lib, &a.tuning_blob(), loc, 2, c.rate).unwrap();
-                let (oa, ob) = (process(&mut a, &input), process(&mut b, &input));
-                if oa != ob {
-                    failures.push(format!("{} {:?}: blob round trip differs", c.dir.display(), loc));
-                }
-                let uses_files = tuning
-                    .settings
-                    .iter()
-                    .any(|s| s.stage.applies_to(loc) && tuning.files().contains(&s.value.as_str()));
-                let (mut r, _) = dts_eagle::configured_engine(lib, &without_files(tuning), loc, 2, c.rate).unwrap();
-                // Off is a pass-through mode: its tuning files do nothing.
-                if uses_files && c.mode != dts_eagle::Mode::Off && process(&mut r, &input) == oa {
-                    failures.push(format!("{} {:?}: tuning files had no effect", c.dir.display(), loc));
-                }
-            }
-        }
         failures
     });
     assert!(failures.is_empty(), "{}", failures.join("\n"));

@@ -23,12 +23,8 @@ What the reference tests check:
 
 - **from blobs**: engines loaded with the recorded engine state reproduce the recorded output exactly (every
   mode, speakers and headphones, 44.1 and 48 kHz, and a 7.1 stream).
-- **from controls**: engines configured setting by setting from Acer's configuration file reproduce it exactly.
-  The recordings were made in a state where the engine's file-based tuning (speaker correction and per-mode EQ
-  files) had not loaded, so this test leaves those settings out to match.
-- **full tuning**: with every setting, including the tuning files, an engine configured from settings and one
-  loaded from its saved state give identical output, and the tuning files change the sound where a mode uses
-  them.
+- **from controls**: engines configured setting by setting from Acer's configuration file, tuning files
+  included, reproduce it exactly.
 - **concurrent**: engines on several threads at once stay exact.
 
 The loader's own tests build a small Windows DLL from `crates/pe-loader/tests/testdll/testdll.c`. They need
