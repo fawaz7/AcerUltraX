@@ -1,6 +1,8 @@
-# AcerUltraX
+<p align="center"><img src="data/icons/hicolor/256x256/apps/io.github.fawaz7.AcerUltraX.png" width="128" alt=""></p>
 
-Your Acer laptop's Windows sound, on Linux.
+<h1 align="center">AcerUltraX</h1>
+
+<p align="center">Your Acer laptop's Windows sound, on Linux.</p>
 
 Acer gaming laptops ship with **DTS:X Ultra** on Windows: per-mode tunings (Music, Movie, Voice, Game, Custom
 Audio) made for the laptop's own speakers and for headphones. On Linux the same speakers sound flat and thin.

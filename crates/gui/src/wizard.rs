@@ -365,8 +365,8 @@ pub fn window(app: &gtk::Application, done: impl Fn(&gtk::Application) + 'static
         .build();
     window.add_css_class("aux");
 
-    let title = label("", &["title"]);
-    title.set_markup("Welcome to Acer<span foreground=\"#22d3ee\">UltraX</span>");
+    let title = crate::brand(36, "Welcome to ");
+    title.add_css_class("title");
     page.append(&title);
     page.append(&label("DTS:X Ultra sound for your Acer laptop, as on Windows.", &["muted"]));
 

@@ -68,6 +68,19 @@ fn label(text: &str, classes: &[&str]) -> gtk::Label {
     l
 }
 
+/// The X mark and "AcerUltraX", as in the sidebar and the setup window.
+fn brand(mark: i32, prefix: &str) -> gtk::Box {
+    let b = hbox(10);
+    let tex = gtk::gdk::Texture::from_bytes(&glib::Bytes::from_static(include_bytes!("mark.png"))).ok();
+    let img = gtk::Image::from_paintable(tex.as_ref());
+    img.set_pixel_size(mark);
+    b.append(&img);
+    let l = label("", &[]);
+    l.set_markup(&format!("{prefix}Acer<span foreground=\"#22d3ee\">UltraX</span>"));
+    b.append(&l);
+    b
+}
+
 fn vbox(spacing: i32) -> gtk::Box {
     gtk::Box::new(Orientation::Vertical, spacing)
 }
@@ -555,9 +568,9 @@ fn build_window(app: &gtk::Application, tray: Option<ksni::blocking::Handle<tray
     let side = vbox(4);
     side.add_css_class("sidebar");
     side.set_size_request(200, -1);
-    let brand = label("", &["brand"]);
-    brand.set_markup("Acer<span foreground=\"#22d3ee\">UltraX</span>");
-    side.append(&brand);
+    let b = brand(28, "");
+    b.add_css_class("brand");
+    side.append(&b);
     let mut group: Option<gtk::ToggleButton> = None;
     for (id, text) in [("sound", "Sound"), ("profiles", "Profiles"), ("devices", "Devices"), ("settings", "Settings")] {
         let b = gtk::ToggleButton::with_label(text);
@@ -694,6 +707,7 @@ fn main() -> glib::ExitCode {
     let app = gtk::Application::builder().application_id(APP_ID).build();
     let started = Rc::new(Cell::new(false));
     app.connect_startup(|_| {
+        gtk::Window::set_default_icon_name(APP_ID);
         let css = gtk::CssProvider::new();
         css.load_from_string(include_str!("style.css"));
         gtk::style_context_add_provider_for_display(

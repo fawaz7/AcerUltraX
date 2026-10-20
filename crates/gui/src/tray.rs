@@ -35,9 +35,20 @@ impl ksni::Tray for AuxTray {
         "AcerUltraX".into()
     }
 
-    // shortcut: a stock icon until the AcerUltraX icon is designed (the last task).
+    // A symbolic icon, so the desktop draws it in the panel's colour.
     fn icon_name(&self) -> String {
-        "audio-speakers".into()
+        "io.github.fawaz7.AcerUltraX-symbolic".into()
+    }
+
+    // Installed icons are found in the icon theme; a build run from the source tree uses the tree's.
+    fn icon_theme_path(&self) -> String {
+        let dev = concat!(env!("CARGO_MANIFEST_DIR"), "/../../data/icons");
+        let installed = "/usr/share/icons/hicolor/symbolic/apps/io.github.fawaz7.AcerUltraX-symbolic.svg";
+        if !std::path::Path::new(installed).exists() && std::path::Path::new(dev).exists() {
+            dev.into()
+        } else {
+            String::new()
+        }
     }
 
     fn tool_tip(&self) -> ksni::ToolTip {
