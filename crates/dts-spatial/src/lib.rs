@@ -117,7 +117,7 @@ impl Encoder {
         let class = pe_loader::shims::winrt::hstring(render.class());
         let mut factory = std::ptr::null_mut();
         let hr = unsafe { get(class, &mut factory) };
-        pe_loader::shims::winrt::delete_hstring(class);
+        unsafe { pe_loader::shims::winrt::delete_hstring(class) };
         check("activation factory", hr)?;
         let mut inst = std::ptr::null_mut();
         // IActivationFactory::ActivateInstance is slot 6 (after IInspectable's six).

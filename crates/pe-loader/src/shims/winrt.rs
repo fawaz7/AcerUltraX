@@ -2,6 +2,8 @@
 //! helpers, error origination and event tracing (no-ops: nothing listens).
 
 #![allow(non_snake_case)]
+// The safety contract of each function is that of the Win32/WinRT function it implements.
+#![allow(clippy::missing_safety_doc)]
 
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -107,7 +109,9 @@ pub fn hstring(s: &str) -> *mut c_void {
     out
 }
 
-pub fn delete_hstring(h: *mut c_void) {
+/// # Safety
+/// `h` must come from [`hstring`] (or be null) and not be used afterwards.
+pub unsafe fn delete_hstring(h: *mut c_void) {
     if let Some(s) = unsafe { hstr(h) } {
         if s.reference == 0 {
             unsafe { libc::free(h) };
@@ -124,22 +128,22 @@ unsafe fn lock_word<'a>(l: *mut c_void) -> &'a AtomicUsize {
     unsafe { AtomicUsize::from_ptr(l as *mut usize) }
 }
 
-pub extern "win64" fn InitializeSRWLock(l: *mut c_void) {
+pub unsafe extern "win64" fn InitializeSRWLock(l: *mut c_void) {
     unsafe { lock_word(l) }.store(0, Ordering::Release);
 }
 
-pub extern "win64" fn AcquireSRWLockExclusive(l: *mut c_void) {
+pub unsafe extern "win64" fn AcquireSRWLockExclusive(l: *mut c_void) {
     let w = unsafe { lock_word(l) };
     while w.compare_exchange_weak(0, 1, Ordering::Acquire, Ordering::Relaxed).is_err() {
         std::thread::yield_now();
     }
 }
 
-pub extern "win64" fn ReleaseSRWLockExclusive(l: *mut c_void) {
+pub unsafe extern "win64" fn ReleaseSRWLockExclusive(l: *mut c_void) {
     unsafe { lock_word(l) }.store(0, Ordering::Release);
 }
 
-pub extern "win64" fn AcquireSRWLockShared(l: *mut c_void) {
+pub unsafe extern "win64" fn AcquireSRWLockShared(l: *mut c_void) {
     let w = unsafe { lock_word(l) };
     loop {
         let v = w.load(Ordering::Relaxed);
@@ -150,7 +154,7 @@ pub extern "win64" fn AcquireSRWLockShared(l: *mut c_void) {
     }
 }
 
-pub extern "win64" fn ReleaseSRWLockShared(l: *mut c_void) {
+pub unsafe extern "win64" fn ReleaseSRWLockShared(l: *mut c_void) {
     unsafe { lock_word(l) }.fetch_sub(2, Ordering::Release);
 }
 
@@ -337,7 +341,7 @@ mod tests {
         );
         assert_eq!(unsafe { WindowsIsStringEmpty(h) }, FALSE);
         assert_ne!(unsafe { WindowsIsStringEmpty(std::ptr::null()) }, FALSE);
-        delete_hstring(h);
+        unsafe { delete_hstring(h) };
         let w: Vec<u16> = "ab\0".encode_utf16().collect();
         let mut header = [0u64; 3];
         let mut r = std::ptr::null_mut();
@@ -355,12 +359,14 @@ mod tests {
     fn srw_and_once() {
         let mut l = 0usize;
         let p = &mut l as *mut usize as *mut c_void;
-        AcquireSRWLockShared(p);
-        AcquireSRWLockShared(p);
-        ReleaseSRWLockShared(p);
-        ReleaseSRWLockShared(p);
-        AcquireSRWLockExclusive(p);
-        ReleaseSRWLockExclusive(p);
+        unsafe {
+            AcquireSRWLockShared(p);
+            AcquireSRWLockShared(p);
+            ReleaseSRWLockShared(p);
+            ReleaseSRWLockShared(p);
+            AcquireSRWLockExclusive(p);
+            ReleaseSRWLockExclusive(p);
+        }
         assert_eq!(l, 0);
         unsafe extern "win64" fn init(_o: *mut c_void, p: *mut c_void, _c: *mut *mut c_void) -> Bool {
             unsafe { *(p as *mut u32) += 1 };
