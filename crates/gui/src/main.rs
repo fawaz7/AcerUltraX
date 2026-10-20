@@ -87,6 +87,8 @@ struct Ui {
     mine_title: gtk::Label,
     mine: gtk::FlowBox,
     mine_buttons: RefCell<Vec<(String, gtk::ToggleButton)>>,
+    spatial_card: gtk::Box,
+    spatial: gtk::Switch,
     compare: gtk::ToggleButton,
     devices_box: gtk::Box,
     devices_seen: RefCell<Value>,
@@ -103,6 +105,8 @@ struct SoundPage {
     grid: gtk::Grid,
     mine_title: gtk::Label,
     mine: gtk::FlowBox,
+    spatial_card: gtk::Box,
+    spatial: gtk::Switch,
     compare: gtk::ToggleButton,
 }
 
@@ -159,6 +163,23 @@ fn sound_page(ui_modes: &mut Vec<(String, gtk::ToggleButton)>) -> SoundPage {
     page.append(&mine_title);
     page.append(&mine);
 
+    let spatial_card = hbox(12);
+    spatial_card.add_css_class("card");
+    let text = vbox(4);
+    text.set_hexpand(true);
+    text.append(&label("Spatial sound", &[]));
+    text.append(&label(
+        "Windows' DTS:X Ultra (speakers) or DTS Headphone:X: 5.1 and 7.1 games and films around you",
+        &["muted", "small"],
+    ));
+    spatial_card.append(&text);
+    let spatial = gtk::Switch::new();
+    spatial.set_valign(Align::Center);
+    spatial.update_property(&[gtk::accessible::Property::Label("Spatial sound")]);
+    spatial_card.append(&spatial);
+    spatial_card.set_visible(false);
+    page.append(&spatial_card);
+
     let card = hbox(12);
     card.add_css_class("card");
     let text = vbox(4);
@@ -176,7 +197,7 @@ fn sound_page(ui_modes: &mut Vec<(String, gtk::ToggleButton)>) -> SoundPage {
         "Volume: use your system's volume control as usual. It applies after DTS, as on Windows.",
         &["muted", "small"],
     ));
-    SoundPage { page, device, chip, power, grid, mine_title, mine, compare }
+    SoundPage { page, device, chip, power, grid, mine_title, mine, spatial_card, spatial, compare }
 }
 
 fn devices_page() -> (gtk::Box, gtk::Box) {
@@ -358,6 +379,14 @@ fn settings_page() -> gtk::Box {
             let _ = std::process::Command::new(cli).args(["autostart", if on { "on" } else { "off" }]).status();
         }),
     ));
+    if let Some(s) = client::status().filter(|s| s["spatial_available"].as_bool() == Some(true)) {
+        page.append(&row(
+            "Spatial sound: save power",
+            "Lighter spatial presets (Windows' \"Best power\"); off = \"Best sound\"",
+            s["spatial_power_saving"].as_bool() == Some(true),
+            Box::new(client::set_spatial_power_saving),
+        ));
+    }
     page.append(&row(
         "Icon in the top bar",
         "Quick mode switching; keeps AcerUltraX in the top bar after you close this window",
@@ -437,6 +466,8 @@ fn refresh(ui: &Rc<Ui>) {
                 Some((_, b)) => b.set_active(true),
                 None => all.for_each(|(_, b)| b.set_active(false)),
             }
+            ui.spatial_card.set_visible(s["spatial_available"].as_bool() == Some(true));
+            ui.spatial.set_active(s["spatial"].as_bool() == Some(true));
             ui.compare.set_active(s["compare"].as_bool() == Some(true));
             ui.compare.set_label(if ui.compare.is_active() { "Hearing plain" } else { "Compare" });
         }
@@ -487,7 +518,8 @@ fn model_text() -> String {
 
 fn build_window(app: &gtk::Application, tray: Option<ksni::blocking::Handle<tray::AuxTray>>) -> gtk::ApplicationWindow {
     let mut modes = Vec::new();
-    let SoundPage { page: sound, device, chip, power, grid, mine_title, mine, compare } = sound_page(&mut modes);
+    let SoundPage { page: sound, device, chip, power, grid, mine_title, mine, spatial_card, spatial, compare } =
+        sound_page(&mut modes);
     let (devices, devices_box) = devices_page();
     let stack = gtk::Stack::new();
     stack.set_hexpand(true);
@@ -542,6 +574,8 @@ fn build_window(app: &gtk::Application, tray: Option<ksni::blocking::Handle<tray
         mine_title,
         mine,
         mine_buttons: RefCell::new(Vec::new()),
+        spatial_card,
+        spatial,
         compare,
         devices_box,
         devices_seen: RefCell::new(Value::Null),
@@ -561,6 +595,13 @@ fn build_window(app: &gtk::Application, tray: Option<ksni::blocking::Handle<tray
     ui.power.connect_active_notify(move |sw| {
         if !ui2.updating.get() {
             client::set_enabled(sw.is_active());
+            refresh(&ui2);
+        }
+    });
+    let ui2 = ui.clone();
+    ui.spatial.connect_active_notify(move |sw| {
+        if !ui2.updating.get() {
+            client::set_spatial(sw.is_active());
             refresh(&ui2);
         }
     });

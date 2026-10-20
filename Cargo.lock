@@ -34,12 +34,14 @@ dependencies = [
  "anyhow",
  "audio-graph",
  "dts-eagle",
+ "dts-spatial",
  "env_logger",
  "importer",
  "libc",
  "libspa",
  "libspa-sys",
  "log",
+ "pe-loader",
  "pipewire",
  "pipewire-sys",
  "serde",
@@ -275,8 +277,10 @@ name = "audio-graph"
 version = "0.1.0"
 dependencies = [
  "dts-eagle",
+ "dts-spatial",
  "env_logger",
  "log",
+ "pe-loader",
  "rustfft",
 ]
 
@@ -598,6 +602,16 @@ dependencies = [
  "log",
  "pe-loader",
  "roxmltree",
+ "thiserror",
+]
+
+[[package]]
+name = "dts-spatial"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "log",
+ "pe-loader",
  "thiserror",
 ]
 

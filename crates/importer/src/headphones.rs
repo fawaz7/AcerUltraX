@@ -21,7 +21,7 @@ use crate::{Error, io};
 
 /// Size of a headphone EQ: one DTS engine tuning blob.
 const EQ_SIZE: usize = 0x2d20;
-const KEY_DLLS: &[&str] = &["DTSSoundUnbound2.dll", "DtsInc.DtsXUltra.dll", "DTSApo4xWinRTComponent.dll"];
+pub(crate) const KEY_DLLS: &[&str] = &["DTSSoundUnbound2.dll", "DtsInc.DtsXUltra.dll", "DTSApo4xWinRTComponent.dll"];
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Headphone {
@@ -78,7 +78,7 @@ impl Catalog {
 }
 
 /// 16-character strings in a DLL (UTF-16 or ASCII): candidate AES-128 keys.
-fn key_candidates(dll: &[u8]) -> Vec<[u8; 16]> {
+pub(crate) fn key_candidates(dll: &[u8]) -> Vec<[u8; 16]> {
     let printable = |c: u8| (0x21..=0x7e).contains(&c);
     let mut out = Vec::new();
     // UTF-16LE: 16 printable characters followed by a NUL character.
@@ -105,6 +105,11 @@ fn key_candidates(dll: &[u8]) -> Vec<[u8; 16]> {
 
 /// AES-128-ECB with PKCS#7 padding; `None` unless the result is a complete EQ.
 fn decrypt(key: &[u8; 16], data: &[u8]) -> Option<Vec<u8>> {
+    aes_ecb_pkcs7(key, data).filter(|p| p.len() == EQ_SIZE)
+}
+
+/// AES-128-ECB decryption with PKCS#7 padding (how DTS's app stores its data); `None` if the padding is wrong.
+pub(crate) fn aes_ecb_pkcs7(key: &[u8; 16], data: &[u8]) -> Option<Vec<u8>> {
     if data.len() % 16 != 0 || data.is_empty() {
         return None;
     }
@@ -118,7 +123,7 @@ fn decrypt(key: &[u8; 16], data: &[u8]) -> Option<Vec<u8>> {
         return None;
     }
     p.truncate(p.len() - pad);
-    (p.len() == EQ_SIZE).then_some(p)
+    Some(p)
 }
 
 /// Open a database found in the sources (sqlite needs a file).

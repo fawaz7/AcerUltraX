@@ -10,8 +10,11 @@ repository.workspace = true
 
 [dependencies]
 dts-eagle.workspace = true
+dts-spatial.workspace = true
+pe-loader.workspace = true
 log.workspace = true
 rustfft.workspace = true
 
 [dev-dependencies]
 env_logger.workspace = true
+dts-spatial.workspace = true

@@ -104,6 +104,10 @@ pub struct Status {
     pub streams: usize,
     /// Headphone model in use ("Brand Name"), if any.
     pub headphone: Option<String>,
+    /// Spatial sound: available at all, and on for this output.
+    pub spatial_available: bool,
+    pub spatial: bool,
+    pub spatial_power_saving: bool,
 }
 
 #[derive(serde::Serialize)]
@@ -152,6 +156,8 @@ pub struct Router {
     profile: Option<Profile>,
     built: Option<Build>,
     catalog: importer::Catalog,
+    /// The spatial encoder's folder and module, when it was imported.
+    spatial: Option<(std::path::PathBuf, &'static pe_loader::Module)>,
     dirty_since: Option<Instant>,
     volume_quiet_until: Instant,
     /// Prevents a sink volume set before the device's is known from reaching the device.
@@ -170,6 +176,8 @@ struct Build {
     /// Headphone EQ files (48k, 44k) replacing Acer's default headphone EQ.
     eq: Option<[String; 2]>,
     tweaks: crate::config::Tweaks,
+    /// Spatial renderer and preset file, if spatial sound is on.
+    spatial: Option<(dts_spatial::Render, String)>,
 }
 
 fn prop<'a>(d: &'a DictRef, k: &str) -> Option<&'a str> {
@@ -183,6 +191,7 @@ impl Router {
         lib: &'static dts_eagle::Library,
         oem: Arc<dts_eagle::OemConfig>,
         catalog: importer::Catalog,
+        spatial: Option<(std::path::PathBuf, &'static pe_loader::Module)>,
         opts: Options,
     ) -> anyhow::Result<RouterRc> {
         let registry = core.get_registry_rc()?;
@@ -237,6 +246,7 @@ impl Router {
             profile: None,
             built: None,
             catalog,
+            spatial,
             dirty_since: None,
             volume_quiet_until: Instant::now(),
             volume_synced: false,
@@ -716,12 +726,55 @@ impl Router {
                 r => r,
             };
             let eq = self.headphone_for(n, kind).map(|(h, route)| [h.eq_file(route, "48k"), h.eq_file(route, "44k")]);
-            let b = Build { mode, tuning: kind.tuning(), rate, eq, tweaks: profile.tweaks.clone() };
+            let spatial = self.spatial_for(n, kind);
+            let b = Build { mode, tuning: kind.tuning(), rate, eq, tweaks: profile.tweaks.clone(), spatial };
             if self.built.as_ref() != Some(&b) {
                 self.build(b);
             }
         }
         self.profile = Some(profile);
+    }
+
+    /// Spatial sound on an output: the renderer (speakers or headphones) and its preset, if switched on there.
+    fn spatial_for(&self, n: &NodeInfo, kind: Kind) -> Option<(dts_spatial::Render, String)> {
+        self.spatial.as_ref()?;
+        if !self.config.spatial.get(&self.headphone_key(n, kind)).copied().unwrap_or(false) {
+            return None;
+        }
+        let headphones = matches!(kind, Kind::Headphones | Kind::Bluetooth) || (kind == Kind::Other && n.usb);
+        let power = self.config.spatial_power_saving;
+        // The presets DTS's app uses: "Best sound" (and "Balanced") or "Best power".
+        let (render, preset) = match (headphones, power) {
+            (false, false) => (dts_spatial::Render::Speakers, "02-SPAC-HqHeightAndHgNf_SD0_Spk_Normal_v4_RC2.SPAC"),
+            (false, true) => (dts_spatial::Render::Speakers, "04-SPAC-BasicSDContent_SD0_Spk_LowPower_v4_RC2.SPAC"),
+            (true, false) => (dts_spatial::Render::Headphones, "02-SPAC-HqHeightAndHgNf_SD1_Hp_Normal_v4_RC2.SPAC"),
+            (true, true) => (dts_spatial::Render::Headphones, "06-SPAC-BasicSDContent_SD1_Hp_LowPower_v4_RC2.SPAC"),
+        };
+        Some((render, preset.to_string()))
+    }
+
+    /// Spatial sound on or off for `device` (default: the current output).
+    pub fn set_spatial(&mut self, on: bool, device: Option<&str>) -> Result<(), String> {
+        if self.spatial.is_none() {
+            return Err("spatial sound is not set up (import Acer's \"XPERI DTS Utility\" 2023 download)".into());
+        }
+        let key = match device {
+            Some(d) => d.to_string(),
+            None => {
+                let n = self.target.and_then(|t| self.nodes.get(&t)).ok_or("no output device")?;
+                self.headphone_key(n, self.kind(n))
+            }
+        };
+        self.config.spatial.insert(key, on);
+        self.config.save();
+        self.apply_profile();
+        Ok(())
+    }
+
+    pub fn set_spatial_power_saving(&mut self, on: bool) {
+        self.config.spatial_power_saving = on;
+        self.config.save();
+        self.apply_profile();
     }
 
     /// Settings key of an output's headphone model.
@@ -824,7 +877,7 @@ impl Router {
             r if dts_eagle::RATES.contains(&r) => r,
             _ => 48000,
         };
-        let b = Build { mode, tuning: kind.tuning(), rate, eq, tweaks: profile.tweaks.clone() };
+        let b = Build { mode, tuning: kind.tuning(), rate, eq, tweaks: profile.tweaks.clone(), spatial: None };
         Ok(Some((self.tuning_for(&b).ok_or("no tuning")?, rate, profile.tweaks.eq)))
     }
 
@@ -878,9 +931,21 @@ impl Router {
         }
         let Some(t) = self.tuning_for(&b) else { return };
         let eq = b.tweaks.eq;
+        let spatial = match (&b.spatial, &self.spatial) {
+            (Some((render, preset)), Some((dir, module))) => {
+                let read = |f: &str| std::fs::read(dir.join(f)).map_err(|e| log::warn!("spatial preset {f}: {e}")).ok();
+                match (read(preset), read("db_hpeq_disabled_.rdev")) {
+                    (Some(p), Some(d)) => {
+                        Some(audio_graph::Spatial { module, render: *render, preset: Arc::new(p), device: Arc::new(d) })
+                    }
+                    _ => None,
+                }
+            }
+            _ => None,
+        };
         let (lib, shared) = (self.lib, self.shared.clone());
         let spawned = std::thread::Builder::new().name("dts-build".into()).stack_size(8 << 20).spawn(move || {
-            match audio_graph::Prepared::build(lib, &t, rate, eq) {
+            match audio_graph::Prepared::build(lib, &t, rate, eq, spatial) {
                 Ok(p) => *shared.pending.lock().unwrap() = Some(p),
                 Err(e) => log::error!("cannot prepare {mode} ({tuning:?}, {rate} Hz): {e}"),
             }
@@ -893,6 +958,9 @@ impl Router {
             b.eq.as_ref().map(|e| format!(", headphone EQ {}", e[0])).unwrap_or_default(),
             if b.tweaks.is_empty() { "" } else { ", adjusted" }
         );
+        if let Some((_, preset)) = &b.spatial {
+            log::info!("spatial sound on for 5.1/7.1 sound: {preset}");
+        }
     }
 
     // ---------------------------------------------------------------- volume
@@ -934,6 +1002,9 @@ impl Router {
             headphone: n
                 .and_then(|n| self.headphone_for(n, self.kind(n)))
                 .map(|(h, _)| format!("{} {}", h.brand, h.name)),
+            spatial_available: self.spatial.is_some(),
+            spatial: n.is_some_and(|n| self.spatial_for(n, self.kind(n)).is_some()),
+            spatial_power_saving: self.config.spatial_power_saving,
         }
     }
 

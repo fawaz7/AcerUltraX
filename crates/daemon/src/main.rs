@@ -64,7 +64,15 @@ fn main() -> Result<()> {
         .register();
     let catalog = importer::Catalog::load(&Manifest::dts_dir(&data));
     log::info!("{} headphone models", catalog.headphones.len());
-    let router = Router::new(core, mainloop.loop_(), lib, oem, catalog, opts)?;
+    let spatial_dir = Manifest::dts_dir(&data).join("spatial");
+    let spatial = match dts_spatial::load(&spatial_dir.join(importer::spatial::ENCODER)) {
+        Ok(m) => Some((spatial_dir, m)),
+        Err(e) => {
+            log::info!("no spatial sound: {e}");
+            None
+        }
+    };
+    let router = Router::new(core, mainloop.loop_(), lib, oem, catalog, spatial, opts)?;
 
     let registry = router.borrow().registry();
     let (r1, r2) = (router.clone(), router.clone());

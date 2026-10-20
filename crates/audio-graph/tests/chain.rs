@@ -44,7 +44,7 @@ fn per_stream_engines_mix_then_mfx() {
                 layouts.iter().map(|&(id, ch)| (0..ch).map(|c| signal(n, id * 10 + c as u32)).collect()).collect();
 
             // Reference: each stream through its own SFX engine, summed, then MFX.
-            let prepared = Prepared::build(lib, &tuning, rate, None).unwrap();
+            let prepared = Prepared::build(lib, &tuning, rate, None, None).unwrap();
             let (mut sfx2, _) = dts_eagle::configured_engine(lib, &tuning, Location::Sfx, 2, rate).unwrap();
             let blob = sfx2.tuning_blob();
             let mut mix = vec![vec![0f32; n]; 2];
@@ -124,7 +124,7 @@ fn idle_streams_rest_and_resume() {
         .spawn(move || {
             let rate = 48000;
             let mut chain = Chain::new(lib);
-            chain.set_mode(Prepared::build(lib, &tuning, rate, None).unwrap());
+            chain.set_mode(Prepared::build(lib, &tuning, rate, None, None).unwrap());
             let zeros = vec![0f32; 1024];
             let tone = signal(1024, 3);
             let (mut l, mut r) = (vec![0f32; 1024], vec![0f32; 1024]);
@@ -178,6 +178,66 @@ fn measured_response() {
             assert!(worst < 1.0, "Off should be flat, worst deviation {worst} dB");
             let m = audio_graph::response(lib, &music, 48000, None).unwrap();
             assert!(m.iter().zip(&flat).any(|(a, b)| (a.1 - b.1).abs() > 2.0), "Music changes the response");
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+}
+
+/// With spatial sound on, a 7.1 stream goes through the spatial encoder (not its stream engine) into the mix;
+/// stereo streams are unaffected. Needs `ACERULTRAX_SPATIAL_DIR` (the imported `dts/spatial`).
+#[test]
+fn spatial_sound_for_multichannel_streams() {
+    let (Some(vendor), Some(sp)) = (
+        std::env::var_os("ACERULTRAX_VENDOR_DIR").map(PathBuf::from),
+        std::env::var_os("ACERULTRAX_SPATIAL_DIR").map(PathBuf::from),
+    ) else {
+        eprintln!("skipped: set ACERULTRAX_VENDOR_DIR and ACERULTRAX_SPATIAL_DIR");
+        return;
+    };
+    let lib = Library::load(&vendor.join("dtstech64.dll"), Some(&vendor)).unwrap();
+    let xml = std::fs::read_dir(&vendor)
+        .unwrap()
+        .flatten()
+        .map(|e| e.path())
+        .find(|p| p.file_name().unwrap().to_string_lossy().starts_with("dts_apo4_oem_config_"))
+        .unwrap();
+    let oem = OemConfig::parse(&std::fs::read_to_string(xml).unwrap()).unwrap();
+    let tuning = oem.tuning(Mode::Movie, Output::Speakers).unwrap().clone();
+    let module = dts_spatial::load(&sp.join("DtsHrtfEnc.dll")).unwrap();
+    let spatial = audio_graph::Spatial {
+        module,
+        render: dts_spatial::Render::Speakers,
+        preset: std::sync::Arc::new(
+            std::fs::read(sp.join("02-SPAC-HqHeightAndHgNf_SD0_Spk_Normal_v4_RC2.SPAC")).unwrap(),
+        ),
+        device: std::sync::Arc::new(std::fs::read(sp.join("db_hpeq_disabled_.rdev")).unwrap()),
+    };
+    std::thread::Builder::new()
+        .stack_size(8 << 20)
+        .spawn(move || {
+            let (rate, n) = (48000, 48000);
+            let sig: Vec<Vec<f32>> = (0..8).map(|c| signal(n, 70 + c)).collect();
+            let run = |sp: Option<audio_graph::Spatial>| {
+                let mut chain = Chain::new(lib);
+                chain.set_mode(Prepared::build(lib, &tuning, rate, None, sp).unwrap());
+                let (mut l, mut r) = (vec![0f32; n], vec![0f32; n]);
+                for off in (0..n).step_by(480) {
+                    let k = 480.min(n - off);
+                    let v: Vec<&[f32]> = sig.iter().map(|c| &c[off..off + k]).collect();
+                    chain.process(
+                        rate,
+                        &[StreamInput { id: 3, channels: &v }],
+                        [&mut l[off..off + k], &mut r[off..off + k]],
+                    );
+                }
+                (l, r)
+            };
+            let (plain, spatial) = (run(None), run(Some(spatial)));
+            assert!(spatial.0.iter().chain(&spatial.1).all(|x| x.is_finite()));
+            let rms = |x: &[f32]| (x[24000..].iter().map(|v| (*v as f64).powi(2)).sum::<f64>() / 24000.0).sqrt();
+            assert!(rms(&spatial.0) > 1e-3 && rms(&spatial.1) > 1e-3, "spatial output is not silent");
+            assert_ne!(plain.0[24000..24100], spatial.0[24000..24100], "the 7.1 stream took the spatial path");
         })
         .unwrap()
         .join()

@@ -118,6 +118,14 @@ pub fn handle(r: &mut Router, req: &Value) -> Value {
             let id = req.get("id").and_then(Value::as_str);
             r.set_headphone(id, req.get("device").and_then(Value::as_str)).map_or_else(err, |_| ok(Value::Null))
         }
+        "spatial" => {
+            let on = req.get("on").and_then(Value::as_bool).unwrap_or(false);
+            r.set_spatial(on, req.get("device").and_then(Value::as_str)).map_or_else(err, |_| ok(Value::Null))
+        }
+        "spatial-power-saving" => {
+            r.set_spatial_power_saving(req.get("on").and_then(Value::as_bool).unwrap_or(false));
+            ok(Value::Null)
+        }
         "enable" => {
             r.set_enabled(req.get("on").and_then(Value::as_bool).unwrap_or(true));
             ok(Value::Null)

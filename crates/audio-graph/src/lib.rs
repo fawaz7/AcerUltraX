@@ -15,6 +15,8 @@ mod response;
 
 use std::collections::HashMap;
 
+use std::sync::Arc;
+
 use dts_eagle::{Blob, Engine, Library, Location, MAX_BLOCK, ModeTuning};
 
 pub use eq::{BANDS as EQ_BANDS, Eq};
@@ -31,6 +33,19 @@ pub struct Prepared {
     mfx: Engine,
     /// The user's equaliser after DTS, if the profile has one.
     eq: Option<Eq>,
+    /// Spatial sound for 5.1/7.1 streams, if on.
+    spatial: Option<Spatial>,
+}
+
+/// Windows' spatial sound for this output: multichannel streams go through the spatial encoder (instead of
+/// their stream engine) and on into the mix, as Windows feeds the encoder's output to the rest of the chain.
+#[derive(Clone)]
+pub struct Spatial {
+    pub module: &'static pe_loader::Module,
+    pub render: dts_spatial::Render,
+    /// The spatial preset and device profile.
+    pub preset: Arc<Vec<u8>>,
+    pub device: Arc<Vec<u8>>,
 }
 
 impl Prepared {
@@ -41,10 +56,12 @@ impl Prepared {
         tuning: &ModeTuning,
         rate: u32,
         eq: Option<[i32; 10]>,
+        spatial: Option<Spatial>,
     ) -> Result<Prepared, dts_eagle::Error> {
         let (mut sfx, _) = dts_eagle::configured_engine(lib, tuning, Location::Sfx, 2, rate)?;
         let (mfx, _) = dts_eagle::configured_engine(lib, tuning, Location::Mfx, 2, rate)?;
-        Ok(Prepared { rate, sfx_blob: sfx.tuning_blob(), mfx, eq: eq.map(|g| Eq::new(g, rate)) })
+        let spatial = spatial.filter(|_| rate == dts_spatial::RATE);
+        Ok(Prepared { rate, sfx_blob: sfx.tuning_blob(), mfx, eq: eq.map(|g| Eq::new(g, rate)), spatial })
     }
 
     pub fn rate(&self) -> u32 {
@@ -64,6 +81,8 @@ struct StreamEngine {
     channels: usize,
     /// None when the stream is not processed by SFX (4 channels) or its engine failed.
     engine: Option<Engine>,
+    /// The spatial encoder, for a multichannel stream while spatial sound is on.
+    spatial: Option<dts_spatial::Encoder>,
     /// Consecutive frames of digital silence on this stream's input.
     silent: usize,
 }
@@ -84,6 +103,8 @@ pub struct Chain {
     mix: [Vec<f32>; 2],
     /// Consecutive frames of digital silence going into the mode engine.
     mix_silent: usize,
+    /// Scratch for a stream's spatial encoder output.
+    spatial_out: [Vec<f32>; 2],
     /// Pass audio through without DTS (front pairs mixed).
     pub bypass: bool,
     /// Volume applied after DTS, as Windows' endpoint volume (linear).
@@ -102,6 +123,7 @@ impl Chain {
             seen_ids: Vec::new(),
             mix: [vec![0.0; MAX_FRAMES], vec![0.0; MAX_FRAMES]],
             mix_silent: 0,
+            spatial_out: [vec![0.0; MAX_FRAMES], vec![0.0; MAX_FRAMES]],
             bypass: false,
             gain: 1.0,
             match_loudness: false,
@@ -158,14 +180,38 @@ impl Chain {
         let mut sfx_out = [[0f32; MAX_BLOCK]; 2];
         for s in streams {
             let ch = s.channels.len();
-            let st = self.streams.entry(s.id).or_insert_with(|| StreamEngine { channels: ch, engine: None, silent: 0 });
+            let st = self.streams.entry(s.id).or_insert_with(|| StreamEngine {
+                channels: ch,
+                engine: None,
+                spatial: None,
+                silent: 0,
+            });
             let silent = s.channels.iter().all(|c| c[..n].iter().all(|&x| x == 0.0));
             st.silent = if silent { st.silent + n } else { 0 };
             if st.silent > STREAM_REST_SECS * rate as usize {
                 if st.silent > STREAM_FREE_SECS * rate as usize {
                     st.engine = None;
+                    st.spatial = None;
                 }
                 continue;
+            }
+            if let (Some(sp), 6 | 8) = (&mode.spatial, ch) {
+                if st.spatial.is_none() || st.channels != ch {
+                    st.channels = ch;
+                    // shortcut: the encoder starts on the audio thread (~5 ms, once per stream); prepare it off
+                    // the audio thread if that ever causes a dropout at small quantum sizes.
+                    st.spatial = dts_spatial::Encoder::new(sp.module, sp.render, &sp.preset, &sp.device, ch)
+                        .map_err(|e| log::warn!("spatial sound unavailable for a {ch}-channel stream: {e}"))
+                        .ok();
+                }
+                if let Some(enc) = &mut st.spatial {
+                    let [a, b] = &mut self.spatial_out;
+                    if enc.process(s.channels, [&mut a[..n], &mut b[..n]]).is_ok() {
+                        add(l, &a[..n]);
+                        add(r, &b[..n]);
+                        continue;
+                    }
+                }
             }
             if st.channels != ch || (st.engine.is_none() && ch != 4) {
                 st.channels = ch;

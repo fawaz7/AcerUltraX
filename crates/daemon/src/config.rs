@@ -126,6 +126,10 @@ pub struct Config {
     /// from the headphone catalog, or `default` for Acer's own headphone EQ. Unset: recognised automatically
     /// for Bluetooth/USB headphones, else Acer's default.
     pub headphones: BTreeMap<String, String>,
+    /// Windows' spatial sound (DTS:X Ultra / Headphone:X) per output, same keys as `headphones`. Off unless set.
+    pub spatial: BTreeMap<String, bool>,
+    /// Spatial sound's "Best power" option (lighter presets) instead of "Best sound".
+    pub spatial_power_saving: bool,
 }
 
 impl Default for Config {
@@ -143,6 +147,8 @@ impl Default for Config {
             devices: BTreeMap::new(),
             profiles: Vec::new(),
             headphones: BTreeMap::new(),
+            spatial: BTreeMap::new(),
+            spatial_power_saving: false,
         }
     }
 }

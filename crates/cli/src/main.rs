@@ -57,6 +57,13 @@ enum Command {
     },
     /// List the available profiles.
     Profiles,
+    /// Windows' spatial sound (DTS:X Ultra / Headphone:X) for 5.1 and 7.1 sound, on the current output.
+    Spatial {
+        state: OnOff,
+        /// Another output (from `devices`).
+        #[arg(long)]
+        device: Option<String>,
+    },
     /// Turn DTS on or off everywhere.
     Power { state: OnOff },
     /// Loudness-matched comparison: turn DTS down to the loudness of the plain sound (on/off).
@@ -164,6 +171,9 @@ fn main() -> Result<()> {
         }
         Command::Autostart { state: OnOff::On } => autostart::enable(),
         Command::Autostart { state: OnOff::Off } => autostart::disable(),
+        Command::Spatial { state, device } => {
+            daemon(json!({"cmd": "spatial", "on": matches!(state, OnOff::On), "device": device})).map(|_| ())
+        }
         Command::Power { state } => daemon(json!({"cmd": "enable", "on": matches!(state, OnOff::On)})).map(|_| ()),
         Command::Compare { state } => daemon(json!({"cmd": "compare", "on": matches!(state, OnOff::On)})).map(|_| ()),
         Command::Render { input, output, mode, output_device } => {
@@ -218,6 +228,9 @@ fn import(sources: &[PathBuf], ssid: Option<String>, data: &Path) -> Result<()> 
         0 => println!("No headphone models (add Acer's \"XPERI DTS Utility\" download to get them)"),
         n => println!("{n} headphone models"),
     }
+    if m.spatial_presets > 0 {
+        println!("Spatial sound: encoder and {} presets", m.spatial_presets);
+    }
     if !m.engine_verified {
         println!("Note: this dtstech64.dll build has not been verified with AcerUltraX yet.");
     }
@@ -246,6 +259,9 @@ fn status(data: &Path) -> Result<()> {
                 println!("Headphones:     {h}");
             }
             println!("Comparison:     {}", if s["compare"].as_bool() == Some(true) { "on" } else { "off" });
+            if s["spatial_available"].as_bool() == Some(true) {
+                println!("Spatial sound:  {}", if s["spatial"].as_bool() == Some(true) { "on" } else { "off" });
+            }
             println!("Apps:           {}", s["streams"]);
         }
         Err(_) => println!("Service:        not running"),

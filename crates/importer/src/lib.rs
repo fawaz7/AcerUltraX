@@ -6,6 +6,7 @@
 //! ```text
 //! dts/                 dtstech64.dll and the tuning files for this laptop (the engine's tuning directory)
 //! dts/headphones/      headphone models and their EQs (see [`headphones`])
+//! dts/spatial/         the spatial sound encoder and its presets (see [`spatial`])
 //! manifest.toml        what was imported, from where, with checksums
 //! ```
 //!
@@ -14,6 +15,7 @@
 mod detect;
 pub mod headphones;
 mod sources;
+pub mod spatial;
 
 pub use detect::{Codec, detect_codecs, laptop_codec};
 pub use headphones::{Catalog, Headphone};
@@ -93,6 +95,9 @@ pub struct Manifest {
     /// Headphone models imported (0 without the DTS app package).
     #[serde(default)]
     pub headphones: usize,
+    /// Spatial sound presets imported (0 without the 2023 DTS app package).
+    #[serde(default)]
+    pub spatial_presets: usize,
 }
 
 impl Manifest {
@@ -203,6 +208,13 @@ pub fn import(srcs: &[PathBuf], ssid: &str, data_dir: &Path) -> Result<Manifest,
             0
         }
     };
+    let spatial = match spatial::import(&files, &staging) {
+        Ok(n) => n,
+        Err(e) => {
+            log::warn!("spatial sound not imported: {e}");
+            0
+        }
+    };
     let engine_sha256 = sha256(&engine_bytes);
     let manifest = Manifest {
         support: support(&ssid),
@@ -213,6 +225,7 @@ pub fn import(srcs: &[PathBuf], ssid: &str, data_dir: &Path) -> Result<Manifest,
         files: hashes,
         missing_optional,
         headphones,
+        spatial_presets: spatial,
     };
     if dts.exists() {
         std::fs::remove_dir_all(&dts).map_err(io(&dts))?;

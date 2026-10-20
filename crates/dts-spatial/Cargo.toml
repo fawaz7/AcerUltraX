@@ -1,0 +1,15 @@
+[package]
+name = "dts-spatial"
+description = "Windows' DTS:X Ultra / Headphone:X spatial sound encoder (DtsHrtfEnc.dll), loaded natively"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+pe-loader.workspace = true
+thiserror.workspace = true
+log.workspace = true
+libc.workspace = true

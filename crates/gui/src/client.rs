@@ -34,6 +34,14 @@ pub fn set_enabled(on: bool) {
     let _ = request(json!({"cmd": "enable", "on": on}));
 }
 
+pub fn set_spatial(on: bool) {
+    let _ = request(json!({"cmd": "spatial", "on": on}));
+}
+
+pub fn set_spatial_power_saving(on: bool) {
+    let _ = request(json!({"cmd": "spatial-power-saving", "on": on}));
+}
+
 pub fn set_compare(on: bool) {
     let _ = request(json!({"cmd": "compare", "on": on}));
 }

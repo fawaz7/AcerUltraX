@@ -5,12 +5,14 @@
 //! log what happened and abort the process; ones only needed by features the supported DLLs never use return a
 //! failure value.
 
+mod crt;
 mod file;
 mod heap;
 mod misc;
 mod module;
 mod string;
 mod sync;
+pub mod winrt;
 
 use std::ffi::c_void;
 
@@ -212,6 +214,57 @@ fn all() -> &'static [(&'static str, usize)] {
             IsValidLocale => string::IsValidLocale,
             GetUserDefaultLCID => string::GetUserDefaultLCID,
             EnumSystemLocalesW => string::EnumSystemLocalesW,
+        // crt.rs
+        malloc => crt::malloc,
+        calloc => crt::calloc,
+        free => crt::free,
+        _aligned_malloc => crt::_aligned_malloc,
+        _aligned_free => crt::_aligned_free,
+        _callnewh => crt::_callnewh,
+        terminate => crt::terminate,
+        abort => crt::abort,
+        _configure_narrow_argv => crt::_configure_narrow_argv,
+        _initialize_narrow_environment => crt::_initialize_narrow_environment,
+        _initialize_onexit_table => crt::_initialize_onexit_table,
+        _register_onexit_function => crt::_register_onexit_function,
+        _execute_onexit_table => crt::_execute_onexit_table,
+        _crt_atexit => crt::_crt_atexit,
+        _cexit => crt::_cexit,
+        _initterm => crt::_initterm,
+        _initterm_e => crt::_initterm_e,
+        _seh_filter_dll => crt::_seh_filter_dll,
+        strcpy_s => crt::strcpy_s,
+        sin => crt::sin,
+        exp => crt::exp,
+        powf => crt::powf,
+        tanf => crt::tanf,
+        cosf => crt::cosf,
+        atan2f => crt::atan2f,
+        lround => crt::lround,
+        // winrt.rs
+        WindowsCreateString => winrt::WindowsCreateString,
+        WindowsCreateStringReference => winrt::WindowsCreateStringReference,
+        WindowsGetStringRawBuffer => winrt::WindowsGetStringRawBuffer,
+        WindowsIsStringEmpty => winrt::WindowsIsStringEmpty,
+        WindowsStringHasEmbeddedNull => winrt::WindowsStringHasEmbeddedNull,
+        InitializeSRWLock => winrt::InitializeSRWLock,
+        AcquireSRWLockExclusive => winrt::AcquireSRWLockExclusive,
+        ReleaseSRWLockExclusive => winrt::ReleaseSRWLockExclusive,
+        AcquireSRWLockShared => winrt::AcquireSRWLockShared,
+        ReleaseSRWLockShared => winrt::ReleaseSRWLockShared,
+        InitOnceExecuteOnce => winrt::InitOnceExecuteOnce,
+        CoCreateFreeThreadedMarshaler => winrt::CoCreateFreeThreadedMarshaler,
+        CoCreateInstanceFromApp => winrt::CoCreateInstanceFromApp,
+        PropVariantClear => winrt::PropVariantClear,
+        CoTaskMemAlloc => winrt::CoTaskMemAlloc,
+        CoTaskMemFree => winrt::CoTaskMemFree,
+        RoOriginateError => winrt::RoOriginateError,
+        RoOriginateErrorW => winrt::RoOriginateErrorW,
+        EventRegister => winrt::EventRegister,
+        EventUnregister => winrt::EventUnregister,
+        EventSetInformation => winrt::EventSetInformation,
+        EventWriteTransfer => winrt::EventWriteTransfer,
+        CompareStringOrdinal => winrt::CompareStringOrdinal,
         }
     })
 }
