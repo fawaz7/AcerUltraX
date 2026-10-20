@@ -1,0 +1,20 @@
+[package]
+name = "acerultrax"
+description = "AcerUltraX app: DTS:X Ultra modes, devices and settings, with a top-bar icon"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "acerultrax"
+path = "src/main.rs"
+
+[dependencies]
+gtk.workspace = true
+ksni.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+importer.workspace = true

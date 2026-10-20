@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=AcerUltraX
+Comment=DTS:X Ultra sound modes for Acer laptops
+Exec=acerultrax
+Icon=audio-speakers
+Categories=AudioVideo;Audio;Settings;
+Keywords=DTS;sound;equalizer;Acer;Predator;
+StartupNotify=true

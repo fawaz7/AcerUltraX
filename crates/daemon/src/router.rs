@@ -108,6 +108,7 @@ pub struct DeviceStatus {
     pub kind: Kind,
     pub profile: String,
     pub active: bool,
+    pub present: bool,
 }
 
 pub struct Router {
@@ -679,6 +680,7 @@ impl Router {
     }
 
     fn apply_profile(&mut self) {
+        self.remember_bluetooth();
         let Some(n) = self.target.and_then(|t| self.nodes.get(&t)) else { return };
         let kind = self.kind(n);
         let profile = self.config.profile_for(&n.name, kind);
@@ -694,6 +696,20 @@ impl Router {
             }
         }
         self.profile = Some(profile);
+    }
+
+    fn remember_bluetooth(&mut self) {
+        let seen: Vec<(String, (String, Kind))> = self
+            .nodes
+            .values()
+            .filter(|n| n.bluetooth)
+            .map(|n| (n.name.clone(), (n.description.clone(), self.kind(n))))
+            .filter(|(k, v)| self.state.bluetooth.get(k) != Some(v))
+            .collect();
+        if !seen.is_empty() {
+            self.state.bluetooth.extend(seen);
+            self.state.save();
+        }
     }
 
     /// Prepare a mode's engines on a worker thread; the audio thread picks them up.
@@ -755,35 +771,77 @@ impl Router {
         }
     }
 
-    /// Every output device present, with its kind and profile.
+    /// Output devices: the laptop's speakers and wired headphones (always listed), then every present or
+    /// previously seen Bluetooth device, then other present outputs.
     pub fn devices(&self) -> Vec<DeviceStatus> {
-        let mut v: Vec<DeviceStatus> = self
+        let active = self.target.and_then(|t| self.nodes.get(&t)).map(|n| (n.name.clone(), self.kind(n)));
+        let mut v = Vec::new();
+        for (kind, name) in [(Kind::Speakers, "Laptop speakers"), (Kind::Headphones, "Headphones (3.5 mm jack)")] {
+            let present = self.nodes.values().find(|n| n.hardware && self.kind(n) == kind);
+            v.push(DeviceStatus {
+                device: format!("@{}", crate::config::kind_key(kind)),
+                device_name: name.into(),
+                kind,
+                profile: self.config.profile_for(present.map_or("", |n| n.name.as_str()), kind).name,
+                active: active.as_ref().is_some_and(|a| a.1 == kind),
+                present: present.is_some(),
+            });
+        }
+        let mut rest: Vec<DeviceStatus> = self
             .nodes
-            .iter()
-            .filter(|(_, n)| n.hardware)
-            .map(|(id, n)| {
+            .values()
+            .filter(|n| n.hardware && !matches!(self.kind(n), Kind::Speakers | Kind::Headphones))
+            .map(|n| {
                 let kind = self.kind(n);
                 DeviceStatus {
                     device: n.name.clone(),
                     device_name: n.description.clone(),
                     kind,
                     profile: self.config.profile_for(&n.name, kind).name,
-                    active: Some(*id) == self.target,
+                    active: active.as_ref().is_some_and(|a| a.0 == n.name),
+                    present: true,
                 }
             })
             .collect();
-        v.sort_by(|a, b| a.device_name.cmp(&b.device_name));
+        for (name, (desc, kind)) in &self.state.bluetooth {
+            if !rest.iter().any(|d| &d.device == name) {
+                rest.push(DeviceStatus {
+                    device: name.clone(),
+                    device_name: desc.clone(),
+                    kind: *kind,
+                    profile: self.config.profile_for(name, *kind).name,
+                    active: false,
+                    present: false,
+                });
+            }
+        }
+        rest.sort_by_key(|d| (!matches!(d.kind, Kind::Bluetooth | Kind::BluetoothSpeaker), d.device_name.clone()));
+        v.extend(rest);
         v
     }
 
-    /// Use `profile` on `device` (default: the current one) from now on.
+    /// Use `profile` on `device` (default: the current one; `@speakers`/`@headphones`: the laptop's own outputs).
     pub fn set_profile(&mut self, profile: &str, device: Option<&str>) -> Result<(), String> {
         let p = self.config.profile(profile).ok_or_else(|| format!("no profile named {profile:?}"))?;
-        let name = match device {
-            Some(d) => d.to_string(),
-            None => self.target.and_then(|t| self.nodes.get(&t)).ok_or("no output device")?.name.clone(),
+        let (name, kind) = match device {
+            Some("@speakers") => (String::new(), Kind::Speakers),
+            Some("@headphones") => (String::new(), Kind::Headphones),
+            Some(d) => {
+                let kind = self
+                    .nodes
+                    .values()
+                    .find(|n| n.name == d)
+                    .map(|n| self.kind(n))
+                    .or_else(|| self.state.bluetooth.get(d).map(|b| b.1))
+                    .unwrap_or(Kind::Other);
+                (d.to_string(), kind)
+            }
+            None => {
+                let n = self.target.and_then(|t| self.nodes.get(&t)).ok_or("no output device")?;
+                (n.name.clone(), self.kind(n))
+            }
         };
-        self.config.devices.insert(name, p.name.clone());
+        self.config.set_device_profile(&name, kind, &p.name);
         self.config.save();
         self.apply_profile();
         Ok(())

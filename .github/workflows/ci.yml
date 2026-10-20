@@ -12,8 +12,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install LLVM (loader test DLL) and PipeWire headers
-        run: sudo apt-get update && sudo apt-get install -y clang lld llvm libpipewire-0.3-dev
+      - name: Install LLVM (loader test DLL) , PipeWire and GTK headers
+        run: sudo apt-get update && sudo apt-get install -y clang lld llvm libpipewire-0.3-dev libgtk-4-dev
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy

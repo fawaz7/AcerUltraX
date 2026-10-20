@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/pe-loader", "crates/dts-eagle", "crates/audio-graph", "crates/importer", "crates/daemon", "crates/cli"]
+members = ["crates/pe-loader", "crates/dts-eagle", "crates/audio-graph", "crates/importer", "crates/daemon", "crates/cli", "crates/gui"]
 
 [workspace.package]
 version = "0.1.0"
@@ -31,6 +31,8 @@ pipewire = "0.10.1"
 libspa = "0.10.1"
 libspa-sys = "0.10.1"
 pipewire-sys = "0.10.1"
+gtk = { package = "gtk4", version = "0.11.5", features = ["v4_12"] }
+ksni = { version = "0.3.6", default-features = false, features = ["async-io", "blocking"] }
 
 [profile.release]
 panic = "abort"

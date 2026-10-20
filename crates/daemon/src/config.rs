@@ -84,7 +84,7 @@ pub fn builtin_profiles() -> Vec<Profile> {
     v
 }
 
-fn kind_key(k: Kind) -> &'static str {
+pub fn kind_key(k: Kind) -> &'static str {
     match k {
         Kind::Speakers => "speakers",
         Kind::Headphones => "headphones",
@@ -120,6 +120,17 @@ impl Config {
         self.all_profiles().into_iter().find(|p| p.name.eq_ignore_ascii_case(name))
     }
 
+    /// The laptop's own outputs (speakers, wired headphones) are set per kind, so the headphone profile can be
+    /// chosen before anything is plugged in; everything else per device.
+    pub fn set_device_profile(&mut self, device: &str, kind: Kind, profile: &str) {
+        if matches!(kind, Kind::Speakers | Kind::Headphones) {
+            self.devices.remove(device);
+            self.defaults.insert(kind_key(kind).into(), profile.into());
+        } else {
+            self.devices.insert(device.into(), profile.into());
+        }
+    }
+
     /// The profile for a device: its own choice, else the default for its kind, else Off.
     pub fn profile_for(&self, device: &str, kind: Kind) -> Profile {
         self.devices
@@ -135,6 +146,8 @@ impl Config {
 #[serde(default)]
 pub struct State {
     pub history: Vec<String>,
+    /// Bluetooth devices seen before (node name -> name shown), so their profiles can be set while away.
+    pub bluetooth: BTreeMap<String, (String, Kind)>,
 }
 
 impl State {

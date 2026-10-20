@@ -1,0 +1,42 @@
+/* AcerUltraX look: deep graphite with one cyan accent. */
+@define-color bg #0b0e13;
+@define-color panel #10141b;
+@define-color card #121821;
+@define-color raised #18202b;
+@define-color line #1d2430;
+@define-color line2 #2a3442;
+@define-color text #e8edf3;
+@define-color muted #a9b3c1;
+@define-color accent #22d3ee;
+@define-color accent_bg #0f2a30;
+
+window.aux { background: @bg; color: @text; font-family: Inter, Cantarell, sans-serif; font-size: 14px; }
+.aux label { color: @text; }
+.aux .muted { color: @muted; }
+.aux .small { font-size: 12px; }
+.aux .title { font-size: 20px; font-weight: 600; }
+.aux .h2 { font-size: 15px; font-weight: 600; color: @muted; }
+.aux .caps { font-size: 12px; color: @muted; letter-spacing: 1px; }
+
+.aux .sidebar { background: @panel; border-right: 1px solid @line; padding: 24px 16px; }
+.aux .brand { font-size: 18px; font-weight: 700; padding: 0 12px 20px 12px; }
+.aux .nav { background: none; border: none; box-shadow: none; color: @muted; min-height: 44px; padding: 0 12px; border-radius: 10px; }
+.aux .nav:hover { background: @card; }
+.aux .nav:checked { background: @raised; color: @text; font-weight: 600; }
+.aux .model { background: #141a23; border-radius: 10px; padding: 12px; }
+
+.aux .page { padding: 28px 32px; }
+.aux .card { background: @card; border-radius: 14px; padding: 16px 18px; }
+.aux .chip { background: @accent_bg; color: @accent; border-radius: 999px; padding: 8px 14px; font-weight: 600; font-size: 13px; }
+.aux .chip.off { background: @raised; color: @muted; }
+
+.aux .mode { background: @card; border: 2px solid @line; border-radius: 14px; padding: 14px 16px; min-height: 84px; box-shadow: none; color: @text; }
+.aux .mode:hover { border-color: @line2; }
+.aux .mode:checked { background: @accent_bg; border-color: @accent; }
+.aux .mode .name { font-size: 16px; font-weight: 600; }
+
+.aux .outline { background: none; border: 2px solid @accent; color: @accent; border-radius: 10px; min-height: 40px; padding: 0 18px; font-weight: 600; box-shadow: none; }
+.aux .outline:checked { background: @accent; color: @bg; }
+.aux dropdown > button { background: @bg; border: 2px solid @line2; border-radius: 10px; min-height: 40px; color: @text; }
+.aux switch:checked { background: @accent; }
+.aux popover contents, .aux popover arrow { background: @panel; color: @text; }
