@@ -1,0 +1,16 @@
+[package]
+name = "audio-graph"
+description = "The Windows DTS signal chain: one stream engine per app, mix, mode engine, volume"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+dts-eagle.workspace = true
+log.workspace = true
+
+[dev-dependencies]
+env_logger.workspace = true

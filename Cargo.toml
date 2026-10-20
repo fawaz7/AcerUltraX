@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/pe-loader", "crates/dts-eagle", "crates/importer", "crates/cli"]
+members = ["crates/pe-loader", "crates/dts-eagle", "crates/audio-graph", "crates/importer", "crates/cli"]
 
 [workspace.package]
 version = "0.1.0"
@@ -13,6 +13,7 @@ repository = "https://github.com/fawaz7/AcerUltraX"
 [workspace.dependencies]
 pe-loader = { path = "crates/pe-loader" }
 dts-eagle = { path = "crates/dts-eagle" }
+audio-graph = { path = "crates/audio-graph" }
 importer = { path = "crates/importer" }
 libc = "0.2"
 thiserror = "2"
