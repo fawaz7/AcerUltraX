@@ -1,4 +1,9 @@
-The first release of AcerUltraX: your Acer laptop's Windows sound (DTS:X Ultra), natively on Linux.
+AcerUltraX 1.0.1: your Acer laptop's Windows sound (DTS:X Ultra), natively on Linux.
+
+**What's new**
+
+- Fixed: the top-bar menu showed no profiles after logging in, until the Top bar icon switch in Settings was
+  turned off and on again.
 
 **Install**
 
@@ -8,7 +13,7 @@ The first release of AcerUltraX: your Acer laptop's Windows sound (DTS:X Ultra),
 
 Then open **AcerUltraX** and click **Download and set up**.
 
-**What's in it**
+**Everything in AcerUltraX**
 
 - Acer's sound modes (Music, Movie, Game 1–3, Voice, Custom, Off), matching Windows bit for bit.
 - A profile per output: laptop speakers, 3.5 mm headphones, each Bluetooth device.

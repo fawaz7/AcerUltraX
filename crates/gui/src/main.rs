@@ -453,7 +453,6 @@ fn top_bar_card(row: &RowFn) -> gtk::Box {
             match gtk::gio::Application::default().and_downcast::<gtk::Application>() {
                 Some(app) if on => {
                     tray::start(&app);
-                    tray::update(|t| t.shown = tray_profiles());
                 }
                 _ => tray::stop(),
             }

@@ -36,7 +36,7 @@ pub fn start(app: &gtk::Application) -> bool {
     use ksni::blocking::TrayMethods;
     TRAY.with_borrow_mut(|t| {
         if t.is_none() {
-            match AuxTray::default().spawn() {
+            match (AuxTray { shown: crate::tray_profiles(), ..Default::default() }).spawn() {
                 Ok(h) => *t = Some((h, app.hold())),
                 Err(e) => eprintln!("acerultrax: no top-bar icon: {e}"),
             }
