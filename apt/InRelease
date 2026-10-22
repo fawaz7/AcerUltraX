@@ -2,31 +2,31 @@
 Hash: SHA512
 
 Architectures: amd64
-Date: Tue, 20 Oct 2026 19:31:28 +0000
+Date: Thu, 22 Oct 2026 23:40:06 +0000
 Description: AcerUltraX: your Acer laptop's Windows sound on Linux
 Label: AcerUltraX
 Origin: AcerUltraX
 Suite: stable
 MD5Sum:
- adc978105827dae7e53e53eb95e176f2             1115 Packages
- 97d75b175267f8dcd50ccc2e32de994b              720 Packages.gz
- 007e3d6f4ea41e120282bc52b808a876              177 Release
+ d6fb8b081365bc3b21f1297adc79ffaa             2230 Packages
+ 1bcf11ad4725491a36ce17fe7d7d1771              932 Packages.gz
+ df83640bc8f86ad255f625bc6086ae04              177 Release
 SHA1:
- 7af700e189ff19dc7c52a6a5d145c72b075ab079             1115 Packages
- 3c5833d9d587c82241909a51c8caec0b911f4c72              720 Packages.gz
- 4130975d9ac55c781ad6f373c4a5413fc1eb1658              177 Release
+ d62fac4b96306c1628ac4f08355acb35803e5c15             2230 Packages
+ 0f56dc391da896a3ccfb47386024c6f914da705e              932 Packages.gz
+ f95672eb12730147e3d70dd6ae2147cc4060d079              177 Release
 SHA256:
- 07ee066034fe51d3add87dc3035d97df52d003cb988a231b37d44c0a4cbaf519             1115 Packages
- 83a3df955602cd53899beddf6519abfe8856c3a1581b6f39f5df2bd581bc20d9              720 Packages.gz
- 1bc921ec0d87776fb5469c8d89ff9e0bb06d76f761951e97051921e6092d4dfb              177 Release
+ 677a43dc40a559e1619317efdae0b7ac7b9e805dafa79d65386bee7c8ed2fdb7             2230 Packages
+ 6fd2433dd81cec6a124bb88fc68d28026c3785d164be8f7d0caa9eaf272382d3              932 Packages.gz
+ 4983fe13cec4180048ae24c018c10de46460219b485861037842e90dc8d716e5              177 Release
 SHA512:
- 51c4b6d3240fcbffb692c9f2e6d0ad547a4d1b1bd5747b0856e94b592e6ed564b37c8ab3a06c9a489a9db56ce38274928e6a13a3b9f54830cf6e0aaeb0a08111             1115 Packages
- c285ef749dd98928050fbd29d722d462cc04c7620aa412ff3d5137627d11cd0148ba2b0277fff1c83585fd1d436126c74b1536fa76aa68de7a72b4bc213f82e6              720 Packages.gz
- ddd863d7d1c5b73716fa76536a88dc129350a486d2c35603cf957ccfc3c9e7327bb5745dfe7f0fd7fa6ef399a7662cb3ee257c5f7f9d6436af99fd0c5736bea4              177 Release
+ 4cb9372164903fb607f8615ecff8784b97df73dfcca94c415347692d9157a2d826d05b61341cc79c691e9935627e23fbb579fe65c1d62e17cf13ef9c62fc8719             2230 Packages
+ 69eeda492cad2afe7f93c706c45f1c8c0e39a57446a89988ce05ff33e7fe4e7857071afa1774005633b6cf018d5f9af96b86f286d586a3d2e085350a71baa0d5              932 Packages.gz
+ d7def25913e4e35613ef876d173f6c6ae568f69211d4c55a77fe406ccfff392fb24390a2a96733a8ac40074420d7f9c09ccb16fd7989f0d4c1be45182f16f38c              177 Release
 -----BEGIN PGP SIGNATURE-----
 
-iHUEARYKAB0WIQTvz3M3M1ejDukPymTs9b2hYZTndAUCatfBkAAKCRDs9b2hYZTn
-dKGbAP9BVVjX5wYwQvypww0nDgi3P5BwdxvUuS/MgdrUknCDyQD5AZeRAAJetZ8S
-Ry38hU2RTWLDdDTDbH4fTuqWGlOodAQ=
-=JIO6
+iHUEARYKAB0WIQTvz3M3M1ejDukPymTs9b2hYZTndAUCatqe1gAKCRDs9b2hYZTn
+dCb+AQD+AmZ3bUF5s4Q7ij/ULBOury6J5+oLi1u3T3/y5pxWIAD/cdOmvnWwRznJ
+De3oA07FEH9vB4LKivG0h3RD+DX6igw=
+=xUBw
 -----END PGP SIGNATURE-----
