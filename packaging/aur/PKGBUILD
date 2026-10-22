@@ -1,6 +1,6 @@
 # Maintainer: Fawaz Al-Ghzawi <ghazawe1@gmail.com>
 pkgname=acerultrax-git
-pkgver=1.0.1
+pkgver=0.1.1
 pkgrel=1
 pkgdesc="DTS:X Ultra sound for Acer laptops on Linux: Acer's own DTS engine, natively, as on Windows"
 arch=('x86_64')

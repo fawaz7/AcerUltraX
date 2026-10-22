@@ -1,4 +1,4 @@
-AcerUltraX 1.0.1: your Acer laptop's Windows sound (DTS:X Ultra), natively on Linux.
+AcerUltraX 0.1.1: your Acer laptop's Windows sound (DTS:X Ultra), natively on Linux.
 
 **What's new**
 
