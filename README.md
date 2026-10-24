@@ -115,7 +115,6 @@ imports = [ inputs.acerultrax.homeManagerModules.default ];
 
 services.acerultrax = {
   enable = true;
-  # gui.enable = false; # headless: daemon + CLI only (no GTK4)
 };
 ```
 
