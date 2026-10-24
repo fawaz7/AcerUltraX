@@ -116,8 +116,9 @@ pub fn download_panel(ssid: String, extras: Extras, done: impl Fn(&importer::Man
     };
     let idle_label = {
         let (go, with_extras) = (go.clone(), with_extras.clone());
+        let driver = DRIVER.size + download::fallback(&ssid).map_or(0, |p| p.size);
         move || {
-            let total = DRIVER.size + if with_extras() { APP.size } else { 0 };
+            let total = driver + if with_extras() { APP.size } else { 0 };
             go.set_label(&format!("Download and set up · {} MB", mb(total)));
         }
     };

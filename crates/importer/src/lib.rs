@@ -68,8 +68,13 @@ pub fn support(ssid: &str) -> Support {
     }
 }
 
-/// SHA-256 of `dtstech64.dll` builds that have been verified (Acer "XPERI DTS" 1.12.4.0).
-pub const VERIFIED_ENGINES: &[&str] = &["ea3da98e0224ef9d41c16d1a384a41c65c56e983fb10f6e73d73d74fa4e63200"];
+/// SHA-256 of `dtstech64.dll` builds that have been verified: bit-exact with the Windows reference recordings
+/// (Acer "XPERI DTS" 1.12.4.0, 1.15.29.0, 1.16.11.0).
+pub const VERIFIED_ENGINES: &[&str] = &[
+    "ea3da98e0224ef9d41c16d1a384a41c65c56e983fb10f6e73d73d74fa4e63200",
+    "3880623b9223ce63dc89a043d675adf6718c902a3df509c82a6a42d6fc9b6eb1",
+    "56f6664bc667b2715679e1a7fabd0a1e81d7596febb423f263ed56a061e5684e",
+];
 
 /// Where AcerUltraX keeps its data.
 pub fn data_dir() -> PathBuf {
