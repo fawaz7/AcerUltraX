@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.1.3 (2026-10-24)
+
+- Setup now uses Acer's newest DTS driver (2026, version 1.16.11), suggested in
+  [#5](https://github.com/fawaz7/AcerUltraX/issues/5). It has the sound tuning for 278 Acer laptops (the 2023
+  driver had 162), including the tunings Acer improved since 2023. The few laptops it no longer lists get their
+  tuning from an older Acer download automatically.
+- Laptops Acer re-tuned since 2023 (37 models) are offered the new tuning in Settings ("Newer sound from Acer").
+  The PH16-71 is not among them: its tuning has not changed since 2023.
+- About a third of Acer's DTS laptops could not be set up at all: their tuning has five modes (Off, Music,
+  Movie, Game 1, Custom) instead of eight. They now work, and the app shows only the modes the laptop has.
+- Headphone models and spatial sound come from Acer's 2026 DTS app: 552 headphone models (new: HyperX Cloud III
+  and Cloud III S Wireless, Cloud Alpha, Logitech G522 and others). Headphones you picked stay picked.
+- Updates: the About page shows whether a newer AcerUltraX is out, with what's new, and installs it with one
+  click when you installed the download or use the apt repository (other package managers: it says how). The
+  top-bar menu shows it too. Your settings and profiles are kept. Can be turned off. Versions before 0.1.3 do not
+  have this, so update to 0.1.3 the usual way once.
+- Newer Acer sound hardware is recognised: Senary codecs, SoundWire and Realtek USB audio (experimental).
+- Fixed: setting up the driver again without the DTS app dropped the headphone models and spatial sound.
+- Fixed: the "Star on GitHub" button was hard to read.
+
 ## 0.1.2 (2026-10-24)
 
 - Fixed: 5.1 and 7.1 sound (for example a movie in VLC) lost its centre channel, where most dialogue is, when DTS
