@@ -87,7 +87,8 @@ fn per_stream_engines_mix_then_mfx() {
                 (0..2).map(|c| (0..n).filter(|&i| got[c][i].to_bits() != want[c][i].to_bits()).count()).sum::<usize>();
             assert_eq!(bad, 0, "chain output differs from independent engines");
 
-            // Bypass mixes the front pairs unprocessed, with the volume applied.
+            // Bypass mixes the streams down to stereo unprocessed (7.1: centre and surrounds at -3 dB, LFE at -9 dB),
+            // with the volume applied.
             chain.bypass = true;
             chain.gain = 0.5;
             let views: Vec<Vec<&[f32]>> = sigs.iter().map(|s| s.iter().map(|c| &c[..64]).collect()).collect();
@@ -95,7 +96,10 @@ fn per_stream_engines_mix_then_mfx() {
                 layouts.iter().zip(&views).map(|(&(id, _), v)| StreamInput { id, channels: v }).collect();
             let (mut l, mut r) = (vec![0f32; 64], vec![0f32; 64]);
             chain.process(rate, &inputs, [&mut l, &mut r]);
-            let expect_l = 0.5 * (sigs[0][0][3] + sigs[1][0][3] + sigs[2][0][3]);
+            let s71 = &sigs[1];
+            let h = std::f32::consts::FRAC_1_SQRT_2;
+            let left71 = s71[0][3] + h * (s71[2][3] + s71[4][3] + s71[6][3]) + 0.5 * h * s71[3][3];
+            let expect_l = 0.5 * (sigs[0][0][3] + left71 + sigs[2][0][3]);
             assert!((l[3] - expect_l).abs() < 1e-6);
         })
         .unwrap()

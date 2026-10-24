@@ -12,15 +12,15 @@
 //! device in the desktop's sound settings makes AcerUltraX follow it. The visible sink's volume is mirrored to
 //! the device, so it applies after DTS, as on Windows.
 
-use std::cell::RefCell;
-use std::collections::HashMap;
+use std::cell::{Cell, RefCell};
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
 use pipewire::core::CoreRc;
-use pipewire::link::Link;
+use pipewire::link::{Link, LinkListener, LinkState};
 use pipewire::metadata::{Metadata, MetadataListener};
 use pipewire::node::{Node, NodeListener};
 use pipewire::properties::properties;
@@ -70,16 +70,23 @@ struct PortInfo {
 struct App {
     serial: u32,
     dont_move: bool,
+    /// Its properties are known (from the node info; the registry announces only a few).
+    info: bool,
+    /// A native PipeWire stream headed for the default output: it can start in its own input (see
+    /// [`Router::claim_early`]).
+    early: bool,
+    /// Taken for AcerUltraX by [`Router::on_app_format`], before being linked anywhere.
+    claimed_early: bool,
     positions: Option<Vec<u32>>,
     wanted: bool,
     _proxy: Node,
     _listener: NodeListener,
 }
 
-/// A stream with its own hidden sink and filter port group.
+/// A stream with its own hidden sink and filter port group; without an app, one kept ready.
 struct Slot {
     index: usize,
-    app: u32,
+    app: Option<u32>,
     channels: Vec<&'static str>,
     sink_name: String,
     sink_id: Option<u32>,
@@ -149,9 +156,20 @@ pub struct Router {
     slots: Vec<Slot>,
     group0_links: Vec<Option<Link>>,
     metadata: Option<(Metadata, MetadataListener)>,
+    /// Streams the default metadata gives a target (e.g. WirePlumber restoring an app's output).
+    targets: HashSet<u32>,
+    /// AcerUltraX is the default output.
+    default_ours: bool,
 
     target: Option<u32>,
-    out_links: Vec<Link>,
+    out_links: Vec<(Link, LinkListener)>,
+    /// A link to the device stopped after running (nothing plays; the device may be suspended next). Set from
+    /// link events.
+    out_stale: Rc<Cell<bool>>,
+    /// Port groups of released streams, removed from the filter once their links are gone.
+    retired: Vec<(crate::filter::Group, Instant)>,
+    /// Ready inputs made so far (they are numbered).
+    spares: u32,
     /// Profile in effect and the (mode, tuning, rate) its engines were built for.
     profile: Option<Profile>,
     built: Option<Build>,
@@ -160,6 +178,8 @@ pub struct Router {
     spatial: Option<(std::path::PathBuf, &'static pe_loader::Module)>,
     dirty_since: Option<Instant>,
     volume_quiet_until: Instant,
+    /// Until when the common input is held silent (see [`Router::add_slot`]).
+    hold_common_until: Option<Instant>,
     /// Prevents a sink volume set before the device's is known from reaching the device.
     volume_synced: bool,
     ticks: u64,
@@ -241,14 +261,20 @@ impl Router {
             slots: Vec::new(),
             group0_links: vec![None, None],
             metadata: None,
+            targets: HashSet::new(),
+            default_ours: false,
             target: None,
             out_links: Vec::new(),
+            out_stale: Rc::default(),
+            retired: Vec::new(),
+            spares: 0,
             profile: None,
             built: None,
             catalog,
             spatial,
             dirty_since: None,
             volume_quiet_until: Instant::now(),
+            hold_common_until: None,
             volume_synced: false,
             ticks: 0,
         }));
@@ -302,6 +328,16 @@ impl Router {
                 r.links.insert(g.id, (o, i));
                 if r.claims(i) {
                     r.want(o);
+                } else if let Some(k) =
+                    r.slots.iter().position(|s| s.app == Some(o) && s.sink_id.is_some_and(|id| id != i))
+                {
+                    // Started in its own input but sent elsewhere (e.g. its remembered output): leave the target that
+                    // sent it there alone.
+                    if let Some(a) = r.apps.get_mut(&o) {
+                        a.wanted = false;
+                    }
+                    r.slots[k].moved = false;
+                    r.release(k);
                 }
             }
             ObjectType::Device => {
@@ -321,10 +357,18 @@ impl Router {
                 let listener = md
                     .add_listener_local()
                     .property(move |subject, key, _, value| {
-                        if let (Some(r), 0, Some(DEFAULT_KEY)) = (weak.upgrade(), subject, key) {
-                            if let Ok(mut r) = r.try_borrow_mut() {
-                                r.on_default_changed(value);
+                        let Some(r) = weak.upgrade() else { return 0 };
+                        let Ok(mut r) = r.try_borrow_mut() else { return 0 };
+                        match (subject, key) {
+                            (0, Some(DEFAULT_KEY)) => r.on_default_changed(value),
+                            (s, Some("target.object" | "target.node")) if s != 0 => {
+                                if value.is_some() {
+                                    r.targets.insert(s);
+                                } else {
+                                    r.targets.remove(&s);
+                                }
                             }
+                            _ => {}
                         }
                         0
                     })
@@ -359,8 +403,6 @@ impl Router {
         }
         if let Some(slot) = self.slots.iter_mut().find(|s| s.sink_name == name) {
             slot.sink_id = Some(g.id);
-            let i = self.slots.iter().position(|s| s.sink_name == name).unwrap();
-            self.move_app(i);
             self.try_link_all();
             return;
         }
@@ -369,8 +411,17 @@ impl Router {
             let (id, weak) = (g.id, Rc::downgrade(this));
             let listener = proxy
                 .add_listener_local()
+                .info({
+                    let weak = weak.clone();
+                    move |info| {
+                        if let (Some(r), Some(props)) = (weak.upgrade(), info.props()) {
+                            r.borrow_mut().on_app_info(id, props);
+                        }
+                    }
+                })
                 .param(move |_, pid, _, _, pod| {
-                    if pid != ParamType::Format {
+                    // The format a stream offers is known before it is linked.
+                    if pid != ParamType::Format && pid != ParamType::EnumFormat {
                         return;
                     }
                     let (Some(r), Some(pod)) = (weak.upgrade(), pod) else { return };
@@ -379,12 +430,21 @@ impl Router {
                     }
                 })
                 .register();
-            proxy.subscribe_params(&[ParamType::Format]);
+            proxy.subscribe_params(&[ParamType::Format, ParamType::EnumFormat]);
             let serial = prop(props, "object.serial").and_then(|s| s.parse().ok()).unwrap_or(g.id);
-            let dont_move = prop(props, "node.dont-move") == Some("true");
             self.apps.insert(
                 g.id,
-                App { serial, dont_move, positions: None, wanted: false, _proxy: proxy, _listener: listener },
+                App {
+                    serial,
+                    dont_move: false,
+                    info: false,
+                    early: false,
+                    claimed_early: false,
+                    positions: None,
+                    wanted: false,
+                    _proxy: proxy,
+                    _listener: listener,
+                },
             );
             return;
         }
@@ -410,11 +470,12 @@ impl Router {
     pub fn on_global_remove(this: &RouterRc, id: u32) {
         let mut r = this.borrow_mut();
         if r.apps.remove(&id).is_some() {
-            if let Some(i) = r.slots.iter().position(|s| s.app == id) {
+            if let Some(i) = r.slots.iter().position(|s| s.app == Some(id)) {
                 r.slots[i].moved = false; // the stream is gone, no target to clear
                 r.release(i);
             }
         }
+        r.targets.remove(&id);
         r.ports.remove(&id);
         r.links.remove(&id);
         r.devices.remove(&id);
@@ -454,6 +515,20 @@ impl Router {
         }
     }
 
+    fn on_app_info(&mut self, app: u32, props: &DictRef) {
+        let Some(a) = self.apps.get_mut(&app) else { return };
+        if a.info {
+            return;
+        }
+        a.info = true;
+        a.dont_move = prop(props, "node.dont-move") == Some("true");
+        let targeted = prop(props, "target.object").or(prop(props, "node.target")).is_some_and(|t| t != SINK_NAME)
+            || prop(props, "node.autoconnect") == Some("false");
+        // PulseAudio clients are not answered until linked to a real sink, so they cannot start in an input.
+        a.early = !targeted && !a.dont_move && prop(props, "client.api") != Some("pipewire-pulse");
+        self.claim_early(app);
+    }
+
     fn on_app_format(&mut self, app: u32, positions: Vec<u32>) {
         let Some(a) = self.apps.get_mut(&app) else { return };
         let first = a.positions.is_none();
@@ -461,25 +536,81 @@ impl Router {
         if first && a.wanted && !a.dont_move {
             self.add_slot(app);
         }
+        self.claim_early(app);
+    }
+
+    /// A native stream bound for the default output goes to its own input before it plays: moving a stream that
+    /// plays loses the block in transit (about 20 ms at its start). Needs its properties and format.
+    fn claim_early(&mut self, app: u32) {
+        let ours = self.default_ours && !self.targets.contains(&app);
+        let Some(a) = self.apps.get_mut(&app) else { return };
+        if ours && a.info && a.early && !a.wanted && a.positions.is_some() {
+            (a.wanted, a.claimed_early) = (true, true);
+            self.add_slot(app);
+        }
     }
 
     fn add_slot(&mut self, app: u32) {
-        if self.slots.iter().any(|s| s.app == app) {
+        if self.slots.iter().any(|s| s.app == Some(app)) {
             return;
         }
-        let Some(index) = (1..MAX_GROUPS).find(|i| !self.slots.iter().any(|s| s.index == *i)) else {
-            log::warn!("too many streams; stream {app} shares the common input");
-            return;
-        };
         let a = &self.apps[&app];
+        let (serial, early) = (a.serial, a.claimed_early);
         let channels = layout::group_layout(a.positions.as_deref().unwrap_or(&[]));
-        let sink_name = format!("{IN_PREFIX}{}", a.serial);
+        // A PulseAudio app's first two blocks reach AcerUltraX before it can be moved, through the common input:
+        // downmixed to stereo and through the common stereo engine. For 5.1/7.1 that sounds different from
+        // its own engine and the switch clicks, so the common input is silent until the stream has moved (it
+        // then starts about 40 ms in, in its own engine, as on Windows). Stereo and mono sound the same either way.
+        if channels.len() > 2 && !early {
+            self.hold_common_until = Some(Instant::now() + Duration::from_millis(400));
+            self.shared.hold_common.store(true, Ordering::Relaxed);
+        }
+        // Mono goes into a stereo input on both sides, as its stream engine would take it anyway.
+        let fits = |s: &Slot| s.channels == channels || (channels == ["MONO"] && s.channels == ["FL", "FR"]);
+        if let Some(i) = self.slots.iter().position(|s| s.app.is_none() && fits(s)) {
+            let index = self.slots[i].index;
+            if let Some(g) = self.shared.groups.lock().unwrap().iter_mut().find(|g| g.index == index) {
+                g.id = serial;
+            }
+            self.slots[i].app = Some(app);
+            log::info!("stream {app} ({} ch) gets its own DTS engine", channels.len());
+            self.move_app(i);
+            return;
+        }
+        if self.new_slot(Some(app), serial, channels.clone()) {
+            log::info!("stream {app} ({} ch) gets its own DTS engine", channels.len());
+        }
+    }
+
+    /// Keep a stereo input ready while AcerUltraX is the default output, so a new stream can be sent to its own
+    /// input at once (making one takes several round trips, and the session manager may link it first).
+    fn ensure_spare(&mut self) {
+        if !self.default_ours || self.filter_id.is_none() || self.slots.iter().any(|s| s.app.is_none()) {
+            return;
+        }
+        self.spares += 1;
+        self.new_slot(None, u32::MAX - self.spares, vec!["FL", "FR"]);
+    }
+
+    fn new_slot(&mut self, app: Option<u32>, serial: u32, channels: Vec<&'static str>) -> bool {
+        let taken =
+            |i: usize| self.slots.iter().any(|s| s.index == i) || self.retired.iter().any(|(g, _)| g.index == i);
+        let Some(index) = (1..MAX_GROUPS).find(|&i| !taken(i)) else {
+            if let Some(app) = app {
+                log::warn!("too many streams; stream {app} shares the common input");
+            }
+            return false;
+        };
+        let sink_name = match app {
+            Some(_) => format!("{IN_PREFIX}{serial}"),
+            None => format!("{IN_PREFIX}ready{}", self.spares),
+        };
         let sink: Node = match self.core.create_object(
             "adapter",
             &properties! {
                 "factory.name" => "support.null-audio-sink",
                 "node.name" => sink_name.as_str(),
-                "node.description" => format!("AcerUltraX input {}", a.serial).as_str(),
+                "node.description" => format!("AcerUltraX input {serial}").as_str(),
                 "media.class" => "Audio/Sink/Internal",
                 "audio.channels" => channels.len().to_string().as_str(),
                 "audio.position" => format!("[{}]", channels.join(",")).as_str(),
@@ -491,13 +622,12 @@ impl Router {
         ) {
             Ok(s) => s,
             Err(e) => {
-                log::warn!("cannot create an input for stream {app}: {e}");
-                return;
+                log::warn!("cannot create an input: {e}");
+                return false;
             }
         };
-        let group = self.filter.add_group(index, a.serial, &channels);
+        let group = self.filter.add_group(index, serial, &channels);
         self.shared.groups.lock().unwrap().push(group);
-        log::info!("stream {app} ({} ch) gets its own DTS engine", channels.len());
         self.slots.push(Slot {
             index,
             app,
@@ -509,15 +639,25 @@ impl Router {
             moved: false,
             created: Instant::now(),
         });
+        true
     }
 
     fn move_app(&mut self, i: usize) {
+        let Some(app) = self.slots[i].app else { return };
+        // Taken early, but since given a target of its own (e.g. WirePlumber restoring the app's output): let it go.
+        if self.targets.contains(&app) && self.apps.get(&app).is_some_and(|a| a.claimed_early) {
+            if let Some(a) = self.apps.get_mut(&app) {
+                (a.wanted, a.claimed_early) = (false, false);
+            }
+            self.release(i);
+            return;
+        }
         let s = &mut self.slots[i];
         let Some((md, _)) = &self.metadata else { return };
         if s.moved || s.sink_id.is_none() {
             return;
         }
-        md.set_property(s.app, "target.object", Some("Spa:Id"), Some(&s.sink_name));
+        md.set_property(app, "target.object", Some("Spa:Id"), Some(&s.sink_name));
         s.moved = true;
     }
 
@@ -527,13 +667,16 @@ impl Router {
             let mut groups = self.shared.groups.lock().unwrap();
             groups.iter().position(|g| g.index == s.index).map(|p| groups.remove(p))
         };
-        if let Some(g) = group {
-            self.filter.remove_group(g);
-        }
-        if s.moved && self.apps.contains_key(&s.app) {
+        if let Some(app) = s.app.filter(|a| s.moved && self.apps.contains_key(a)) {
             if let Some((md, _)) = &self.metadata {
-                md.set_property(s.app, "target.object", None, None);
+                md.set_property(app, "target.object", None, None);
             }
+        }
+        // The input and its links go first; the ports a moment later (see `tick`): ports removed while still
+        // linked make PipeWire fail on them, which puts the filter in an error state once it goes idle.
+        drop(s);
+        if let Some(g) = group {
+            self.retired.push((g, Instant::now()));
         }
     }
 
@@ -584,6 +727,13 @@ impl Router {
                 }
             }
         }
+        // Only once linked: moved into an input not linked yet, a stream's first block went nowhere. Last first,
+        // as a move may release its slot.
+        for k in (0..self.slots.len()).rev() {
+            if !self.slots[k].moved && self.slots[k].links.iter().all(Option::is_some) {
+                self.move_app(k);
+            }
+        }
     }
 
     /// Streams whose input could not be wired up within 3 s go back to the common input instead of silence.
@@ -593,9 +743,11 @@ impl Router {
             .iter()
             .position(|s| s.created.elapsed() > Duration::from_secs(3) && s.links.iter().any(Option::is_none))
         {
-            log::warn!("stream {}: its input is not connected after 3 s; using the common input", self.slots[i].app);
-            if let Some(a) = self.apps.get_mut(&self.slots[i].app) {
-                a.dont_move = true;
+            if let Some(app) = self.slots[i].app {
+                log::warn!("stream {app}: its input is not connected after 3 s; using the common input");
+                if let Some(a) = self.apps.get_mut(&app) {
+                    a.dont_move = true;
+                }
             }
             self.release(i);
         }
@@ -615,7 +767,8 @@ impl Router {
 
     fn on_default_changed(&mut self, value: Option<&str>) {
         let Some(name) = value.and_then(json_name) else { return };
-        if name == SINK_NAME || self.opts.no_default {
+        self.default_ours = name == SINK_NAME;
+        if self.default_ours || self.opts.no_default {
             return;
         }
         if self.nodes.values().any(|n| n.name == name && n.hardware) {
@@ -650,6 +803,21 @@ impl Router {
     pub fn tick(&mut self) {
         self.shared.empty_trash();
         self.check_slots();
+        self.ensure_spare();
+        while self.retired.first().is_some_and(|(_, t)| t.elapsed() > Duration::from_millis(500)) {
+            let (g, _) = self.retired.remove(0);
+            self.filter.remove_group(g);
+        }
+        if self.out_stale.replace(false) {
+            // Nothing plays any more. Once the device is suspended, the (passive) links that ran do not get it
+            // going again, but links made while it is idle or suspended do: link it afresh, while it is quiet.
+            self.out_links.clear();
+            self.link_output();
+        }
+        if self.hold_common_until.is_some_and(|t| t <= Instant::now()) {
+            self.hold_common_until = None;
+            self.shared.hold_common.store(false, Ordering::Relaxed);
+        }
         self.ticks += 1;
         if self.ticks % 300 == 0 {
             // Engines of idle apps are freed on the audio thread; hand that memory back to the system.
@@ -705,12 +873,26 @@ impl Router {
         if playback.is_empty() {
             return;
         }
-        for ch in ["FL", "FR"] {
-            let Some(o) = self.port(f, true, &format!("output_{ch}")) else { return };
-            // Stereo devices get FL/FR; mono ones (e.g. Bluetooth headsets in call mode) get both on one port.
-            let i = playback.iter().find(|(_, n)| n == &format!("playback_{ch}")).or(playback.first()).map(|p| p.0);
-            if let Some(l) = i.and_then(|i| self.link(f, o, t, i, true)) {
-                self.out_links.push(l);
+        // Link all at once, or not yet: a partly linked device is never revisited.
+        if ["FL", "FR", "MONO"].iter().any(|ch| self.port(f, true, &format!("output_{ch}")).is_none()) {
+            return;
+        }
+        let speakers = self.nodes.get(&t).is_some_and(|n| self.kind(n) == Kind::Speakers);
+        let stereo = ["playback_FL", "playback_FR"].iter().all(|c| playback.iter().any(|(_, n)| n == c));
+        for (i, name) in &playback {
+            let src = layout::output_source(name.strip_prefix("playback_").unwrap_or(name), stereo, speakers);
+            let Some(o) = src.and_then(|ch| self.port(f, true, &format!("output_{ch}"))) else { continue };
+            if let Some(l) = self.link(f, o, t, *i, true) {
+                let (stale, was_active) = (self.out_stale.clone(), Cell::new(false));
+                let listener = l
+                    .add_listener_local()
+                    .info(move |info| match info.state() {
+                        LinkState::Active => was_active.set(true),
+                        LinkState::Paused | LinkState::Init if was_active.get() => stale.set(true),
+                        _ => {}
+                    })
+                    .register();
+                self.out_links.push((l, listener));
             }
         }
     }
@@ -1004,7 +1186,7 @@ impl Router {
             bypass: self.shared.bypass.load(Ordering::Relaxed),
             compare: self.shared.match_loudness.load(Ordering::Relaxed),
             rate: self.shared.rate.load(Ordering::Relaxed),
-            streams: self.slots.len(),
+            streams: self.slots.iter().filter(|s| s.app.is_some()).count(),
             headphone: n
                 .and_then(|n| self.headphone_for(n, self.kind(n)))
                 .map(|(h, _)| format!("{} {}", h.brand, h.name)),

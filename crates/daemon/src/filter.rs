@@ -1,4 +1,5 @@
-//! The processing node: a PipeWire filter with one group of input ports per app stream and a stereo output.
+//! The processing node: a PipeWire filter with one group of input ports per app stream and a stereo output
+//! (plus its mono mix).
 //! Its process callback runs on PipeWire's real-time thread and drives the [`audio_graph::Chain`].
 //!
 //! pipewire-rs has no filter wrapper, so this uses the C API directly.
@@ -14,6 +15,7 @@ use pipewire_sys as pw;
 /// Streams handled at once (each gets its own port group); further streams share group 0.
 pub const MAX_GROUPS: usize = 16;
 const MAX_CH: usize = 8;
+static ZEROS: [f32; MAX_FRAMES] = [0.0; MAX_FRAMES];
 
 /// An input-port group: one app stream's channels, in DTS (WAVEFORMATEXTENSIBLE) order.
 pub struct Group {
@@ -35,6 +37,8 @@ pub struct Shared {
     pub pending: Mutex<Option<Prepared>>,
     pub bypass: AtomicBool,
     pub match_loudness: AtomicBool,
+    /// Silence the common input (group 0) while a 5.1/7.1 stream moves to its own input (see the router).
+    pub hold_common: AtomicBool,
     /// Sample rate of the last cycle (0 before the first).
     pub rate: AtomicU32,
     /// Rate of the mode in use (0 = none).
@@ -57,7 +61,8 @@ impl Shared {
 struct Rt {
     chain: Chain,
     shared: Arc<Shared>,
-    out: [*mut c_void; 2],
+    /// Output ports: FL, FR and their mono mix (for a device's centre, bass or mono channel).
+    out: [*mut c_void; 3],
 }
 
 pub struct Filter {
@@ -82,11 +87,17 @@ impl Filter {
             "media.role" => "DSP",
             "node.autoconnect" => "false",
             "node.description" => "AcerUltraX processing",
+            // Let the device suspend when nothing plays: only the apps' links to AcerUltraX keep it running.
+            "node.passive" => "true",
+            // Idle, never paused or suspended: that clears its port formats while groups come and go, which
+            // fails and leaves it in an error state.
+            "node.pause-on-idle" => "false",
+            "session.suspend-timeout-seconds" => "0",
         };
         let mut events: Box<pw::pw_filter_events> = Box::new(unsafe { std::mem::zeroed() });
         events.version = pw::PW_VERSION_FILTER_EVENTS;
         events.process = Some(on_process);
-        let rt = Box::into_raw(Box::new(Rt { chain: Chain::new(lib), shared, out: [std::ptr::null_mut(); 2] }));
+        let rt = Box::into_raw(Box::new(Rt { chain: Chain::new(lib), shared, out: [std::ptr::null_mut(); 3] }));
         let name = CString::new(crate::router::FILTER_NAME).unwrap();
         // SAFETY: the loop outlives the filter; props ownership passes to PipeWire.
         let raw = unsafe {
@@ -94,7 +105,7 @@ impl Filter {
         };
         assert!(!raw.is_null(), "cannot create the PipeWire filter");
         let mut f = Filter { raw, _events: events, rt };
-        for (i, ch) in ["FL", "FR"].into_iter().enumerate() {
+        for (i, ch) in ["FL", "FR", "MONO"].into_iter().enumerate() {
             let p = f.add_port(libspa_sys::SPA_DIRECTION_OUTPUT, &format!("output_{ch}"), ch);
             // SAFETY: the filter is not connected yet, so the callback cannot run concurrently.
             unsafe { (*f.rt).out[i] = p.0 };
@@ -182,16 +193,21 @@ unsafe extern "C" fn on_process(data: *mut c_void, position: *mut libspa_sys::sp
         // The main loop is adding or removing a stream right now: one quiet cycle.
         l.fill(0.0);
         r.fill(0.0);
+        if let Some(m) = unsafe { dsp_buffer(rt.out[2], n) } {
+            m.fill(0.0);
+        }
         return;
     };
     let mut bufs: [[&[f32]; MAX_CH]; MAX_GROUPS] = [[&[]; MAX_CH]; MAX_GROUPS];
     let mut ids = [0u32; MAX_GROUPS];
     let mut widths = [0usize; MAX_GROUPS];
     let mut k = 0;
+    let hold = !rt.chain.bypass && shared.hold_common.load(Ordering::Relaxed);
     for g in groups.iter().take(MAX_GROUPS) {
         let mut ok = !g.ports.is_empty();
         for (c, p) in g.ports.iter().enumerate().take(MAX_CH) {
             match unsafe { dsp_buffer(p.0, n) } {
+                Some(_) if hold && g.index == 0 => bufs[k][c] = &ZEROS[..n as usize],
                 Some(b) => bufs[k][c] = b,
                 None => ok = false,
             }
@@ -204,8 +220,11 @@ unsafe extern "C" fn on_process(data: *mut c_void, position: *mut libspa_sys::sp
     }
     let inputs: [StreamInput; MAX_GROUPS] =
         std::array::from_fn(|i| StreamInput { id: ids[i], channels: &bufs[i][..widths[i]] });
-    rt.chain.process(rate, &inputs[..k], [l, r]);
+    rt.chain.process(rate, &inputs[..k], [&mut *l, &mut *r]);
     drop(groups);
+    if let Some(m) = unsafe { dsp_buffer(rt.out[2], n) } {
+        m.iter_mut().zip(l.iter().zip(r.iter())).for_each(|(m, (a, b))| *m = 0.5 * (a + b));
+    }
     shared.busy_streams.store(rt.chain.busy_streams(), Ordering::Relaxed);
     if let Ok(mut bin) = shared.trash.try_lock() {
         rt.chain.take_trash(&mut bin);

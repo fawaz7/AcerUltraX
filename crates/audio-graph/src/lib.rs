@@ -150,7 +150,7 @@ pub struct Chain {
     trash: Vec<Garbage>,
     /// Scratch for a stream's spatial encoder output.
     spatial_out: [Vec<f32>; 2],
-    /// Pass audio through without DTS (front pairs mixed).
+    /// Pass audio through without DTS (streams mixed down to stereo).
     pub bypass: bool,
     /// Volume applied after DTS, as Windows' endpoint volume (linear).
     pub gain: f32,
@@ -209,7 +209,8 @@ impl Chain {
     }
 
     /// Process one block. Streams not present this block lose their engine. Without a mode for `rate`, or in
-    /// bypass, the streams' front pairs are mixed unprocessed. `out` must be at most [`MAX_FRAMES`] long.
+    /// bypass, the streams are mixed down to stereo unprocessed ([`downmix`]). `out` must be at most
+    /// [`MAX_FRAMES`] long.
     pub fn process(&mut self, rate: u32, streams: &[StreamInput], out: [&mut [f32]; 2]) {
         let n = out[0].len().min(out[1].len()).min(MAX_FRAMES);
         let [l, r] = out;
@@ -221,9 +222,7 @@ impl Chain {
         dry_l.fill(0.0);
         dry_r.fill(0.0);
         for s in streams {
-            let (a, b) = front_pair(s.channels);
-            add(dry_l, &a[..n]);
-            add(dry_r, &b[..n]);
+            downmix(s.channels, dry_l, dry_r);
         }
 
         let mode = match &mut self.mode {
@@ -343,9 +342,7 @@ impl Chain {
         if let Some(eq) = &mut mode.eq {
             eq.process(l, r);
         }
-        if self.match_loudness {
-            self.matcher.process(rate, dry_l, dry_r, l, r);
-        }
+        self.matcher.process(rate, self.match_loudness, dry_l, dry_r, l, r);
         apply_gain_in_place(l, self.gain);
         apply_gain_in_place(r, self.gain);
     }
@@ -370,6 +367,41 @@ fn front_pair<'a>(ch: &[&'a [f32]]) -> (&'a [f32], &'a [f32]) {
     (ch[0], if ch.len() > 1 { ch[1] } else { ch[0] })
 }
 
+/// Level of the centre and surround channels in a stereo downmix (-3 dB).
+const DOWNMIX: f32 = std::f32::consts::FRAC_1_SQRT_2;
+/// Level of the LFE channel in it (-9 dB).
+const DOWNMIX_LFE: f32 = 0.5 * DOWNMIX;
+
+/// Add a stream to a stereo mix exactly as PipeWire mixes it into a stereo device without AcerUltraX
+/// (measured, PipeWire 1.6 defaults): mono on both sides; centre and surrounds at [`DOWNMIX`]; LFE at
+/// [`DOWNMIX_LFE`] on both sides. Channels are 1, 2, FL FR + a surround pair (4), FL FR FC LFE + a surround pair
+/// (6) or FL FR FC LFE BL BR SL SR (8); any other count contributes its front pair.
+fn downmix(ch: &[&[f32]], l: &mut [f32], r: &mut [f32]) {
+    let n = l.len();
+    let (fl, fr) = front_pair(ch);
+    add(l, &fl[..n]);
+    add(r, &fr[..n]);
+    let (centre, sides): (Option<&[f32]>, &[&[f32]]) = match ch.len() {
+        4 => (None, &ch[2..]),
+        6 | 8 => (Some(ch[2]), &ch[4..]),
+        _ => (None, &[]),
+    };
+    if let Some(c) = centre {
+        add_scaled(l, &c[..n], DOWNMIX);
+        add_scaled(r, &c[..n], DOWNMIX);
+        add_scaled(l, &ch[3][..n], DOWNMIX_LFE);
+        add_scaled(r, &ch[3][..n], DOWNMIX_LFE);
+    }
+    for pair in sides.chunks_exact(2) {
+        add_scaled(l, &pair[0][..n], DOWNMIX);
+        add_scaled(r, &pair[1][..n], DOWNMIX);
+    }
+}
+
+fn add_scaled(dst: &mut [f32], src: &[f32], g: f32) {
+    dst.iter_mut().zip(src).for_each(|(d, s)| *d += s * g);
+}
+
 fn add(dst: &mut [f32], src: &[f32]) {
     dst.iter_mut().zip(src).for_each(|(d, s)| *d += s);
 }
@@ -381,5 +413,31 @@ fn apply_gain(src: &[f32], dst: &mut [f32], g: f32) {
 fn apply_gain_in_place(x: &mut [f32], g: f32) {
     if g != 1.0 {
         x.iter_mut().for_each(|v| *v *= g);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// One channel at 1.0, the others silent: where it lands in the stereo downmix.
+    fn place(width: usize, on: usize) -> (f32, f32) {
+        let chans: Vec<Vec<f32>> = (0..width).map(|c| vec![if c == on { 1.0 } else { 0.0 }]).collect();
+        let views: Vec<&[f32]> = chans.iter().map(|c| c.as_slice()).collect();
+        let (mut l, mut r) = ([0f32], [0f32]);
+        downmix(&views, &mut l, &mut r);
+        (l[0], r[0])
+    }
+
+    #[test]
+    fn downmix_like_pipewire() {
+        let (h, q) = (DOWNMIX, DOWNMIX_LFE);
+        assert_eq!(place(1, 0), (1.0, 1.0));
+        assert_eq!([place(2, 0), place(2, 1)], [(1.0, 0.0), (0.0, 1.0)]);
+        assert_eq!([place(4, 2), place(4, 3)], [(h, 0.0), (0.0, h)]);
+        let six: Vec<_> = (0..6).map(|c| place(6, c)).collect();
+        assert_eq!(six, [(1.0, 0.0), (0.0, 1.0), (h, h), (q, q), (h, 0.0), (0.0, h)]);
+        let eight: Vec<_> = (0..8).map(|c| place(8, c)).collect();
+        assert_eq!(eight[2..], [(h, h), (q, q), (h, 0.0), (0.0, h), (h, 0.0), (0.0, h)]);
     }
 }

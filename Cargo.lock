@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "acerultrax"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "gtk4",
@@ -15,7 +15,7 @@ dependencies = [
 
 [[package]]
 name = "acerultrax-cli"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "clap",
@@ -29,7 +29,7 @@ dependencies = [
 
 [[package]]
 name = "acerultrax-daemon"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "audio-graph",
@@ -274,7 +274,7 @@ checksum = "1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0"
 
 [[package]]
 name = "audio-graph"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "dts-eagle",
  "dts-spatial",
@@ -608,7 +608,7 @@ dependencies = [
 
 [[package]]
 name = "dts-eagle"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "env_logger",
  "log",
@@ -619,7 +619,7 @@ dependencies = [
 
 [[package]]
 name = "dts-spatial"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "libc",
  "log",
@@ -1204,7 +1204,7 @@ dependencies = [
 
 [[package]]
 name = "importer"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "aes",
  "dts-eagle",
@@ -1529,7 +1529,7 @@ checksum = "2ee67f1008b1ba2321834326597b8e186293b049a023cdef258527550b9935b4"
 
 [[package]]
 name = "pe-loader"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "libc",
  "log",
