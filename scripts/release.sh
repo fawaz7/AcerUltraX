@@ -20,7 +20,7 @@ sed -i "s/^pkgver=.*/pkgver=$v/" packaging/aur/PKGBUILD
 cargo build -q --release -j4   # updates Cargo.lock
 scripts/check.sh
 git add Cargo.toml Cargo.lock packaging/aur/PKGBUILD
-git commit -q -m "v$v"
+git commit -q -m "v$v" ${RELEASE_TRAILER:+-m "$RELEASE_TRAILER"}  # optional trailer, e.g. Co-Authored-By
 
 git switch -q main
 git merge -q --ff-only preview
