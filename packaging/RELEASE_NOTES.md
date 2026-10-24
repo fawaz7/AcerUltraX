@@ -10,6 +10,11 @@ AcerUltraX 0.1.4: your Acer laptop's Windows sound (DTS:X Ultra), natively on Li
 - Buttons visibly react when you point at them and click them.
 - Links on the About page fall back to the default browser when the desktop's link handler fails.
 
+**Known issue**
+
+- **NixOS with Home Manager:** leave "Start with my session" and "Top bar icon" alone for now; Home Manager starts
+  AcerUltraX for you. A proper fix is on the way.
+
 **Install**
 
 - **Debian 13, Ubuntu 24.04 and newer:** add the apt repository (see the [README](https://github.com/fawaz7/AcerUltraX#install)), or download `acerultrax_*_amd64.deb` below and run `sudo apt install ./acerultrax_*_amd64.deb`.

@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.4 (unreleased)
+## 0.1.4 (2026-10-25)
 
 - NixOS: a Nix flake and a Home Manager module ([#4](https://github.com/fawaz7/AcerUltraX/pull/4), by
   [@gettbitgirl](https://github.com/gettbitgirl)).
@@ -8,6 +8,7 @@
   ([#5](https://github.com/fawaz7/AcerUltraX/issues/5)).
 - Buttons now visibly react when you point at them and click them.
 - Links on the About page fall back to the default browser when the desktop's link handler fails.
+- Known issue on NixOS with Home Manager: leave "Start with my session" and "Top bar icon" alone for now.
 
 ## 0.1.3 (2026-10-24)
 
