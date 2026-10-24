@@ -99,6 +99,26 @@ cd acerultrax-*-x86_64-linux
 **Arch-based** (Arch, CachyOS, Manjaro, EndeavourOS): build the package with
 [`packaging/aur/PKGBUILD`](packaging/aur/PKGBUILD) (`makepkg -si` in that folder).
 
+**Nix / Home Manager**:
+
+Run directly with Nix:
+```sh
+nix run github:fawaz7/AcerUltraX
+```
+
+Or use the Home Manager module:
+```nix
+# flake.nix inputs:
+# acerultrax.url = "github:fawaz7/AcerUltraX";
+
+imports = [ inputs.acerultrax.homeManagerModules.default ];
+
+services.acerultrax = {
+  enable = true;
+  # gui.enable = false; # headless: daemon + CLI only (no GTK4)
+};
+```
+
 Then open **AcerUltraX** and click **Download and set up**. That's it: it is ready in about a minute and starts
 with your session from then on. See the **[user guide](docs/USER_GUIDE.md)** for everything else.
 
