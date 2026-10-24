@@ -118,6 +118,8 @@ services.acerultrax = {
 };
 ```
 
+*(Note: when using the Home Manager module to manage the service, the app's "Start with my session" setting should be left alone.)*
+
 Then open **AcerUltraX** and click **Download and set up**. That's it: it is ready in about a minute and starts
 with your session from then on. See the **[user guide](docs/USER_GUIDE.md)** for everything else.
 

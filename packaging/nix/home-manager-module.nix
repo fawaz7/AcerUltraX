@@ -8,9 +8,12 @@
 let
   cfg = config.services.acerultrax;
 
-  defaultDaemon = pkgs.acerultrax-daemon or (pkgs.callPackage ./daemon.nix { });
-  defaultCli = pkgs.acerultrax-cli or (pkgs.callPackage ./cli.nix { });
-  defaultGui = pkgs.acerultrax-gui or (pkgs.callPackage ./gui.nix { });
+  defaultPackage = pkgs.acerultrax or (pkgs.callPackage ./. { });
+  effectivePackage =
+    if cfg.gui.enable then
+      cfg.package
+    else
+      cfg.package.override { withGui = false; };
 in
 {
   options.services.acerultrax = {
@@ -18,44 +21,22 @@ in
 
     package = lib.mkOption {
       type = lib.types.package;
-      default = defaultDaemon;
-      defaultText = lib.literalExpression "pkgs.acerultrax-daemon";
-      description = "The AcerUltraX daemon package to run as a systemd user service.";
-    };
-
-    cli = {
-      enable = lib.mkOption {
-        type = lib.types.bool;
-        default = true;
-        description = "Whether to install the AcerUltraX command-line interface.";
-      };
-      package = lib.mkOption {
-        type = lib.types.package;
-        default = defaultCli;
-        defaultText = lib.literalExpression "pkgs.acerultrax-cli";
-        description = "The AcerUltraX CLI package to install.";
-      };
+      default = defaultPackage;
+      defaultText = lib.literalExpression "pkgs.acerultrax";
+      description = "The AcerUltraX package to use.";
     };
 
     gui = {
       enable = lib.mkOption {
         type = lib.types.bool;
         default = true;
-        description = "Whether to install the AcerUltraX GTK4 graphical interface and desktop entry.";
-      };
-      package = lib.mkOption {
-        type = lib.types.package;
-        default = defaultGui;
-        defaultText = lib.literalExpression "pkgs.acerultrax-gui";
-        description = "The AcerUltraX GUI package to install.";
+        description = "Whether to build and install the GTK4 graphical interface and desktop entry. If disabled, a headless build with only the daemon and CLI is installed.";
       };
     };
   };
 
   config = lib.mkIf cfg.enable {
-    home.packages =
-      lib.optional cfg.cli.enable cfg.cli.package
-      ++ lib.optional cfg.gui.enable cfg.gui.package;
+    home.packages = [ effectivePackage ];
 
     systemd.user.services.acerultrax = {
       Unit = {
@@ -69,7 +50,7 @@ in
       };
 
       Service = {
-        ExecStart = "${cfg.package}/bin/acerultrax-daemon";
+        ExecStart = "${effectivePackage}/bin/acerultrax-daemon";
         Restart = "on-failure";
         RestartSec = 2;
       };
