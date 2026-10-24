@@ -251,6 +251,18 @@ pub fn import(srcs: &[PathBuf], ssid: &str, data_dir: &Path) -> Result<Manifest,
             0
         }
     };
+    // Updating from the driver package alone keeps the headphone models and spatial sound set up before.
+    let old = Manifest::load(data_dir).ok();
+    let keep = |dir: &str, n: usize, before: Option<usize>| -> Result<usize, Error> {
+        let prev = dts.join(dir);
+        if n > 0 || !prev.is_dir() {
+            return Ok(n);
+        }
+        std::fs::rename(&prev, staging.join(dir)).map_err(io(&prev))?;
+        Ok(before.unwrap_or(0))
+    };
+    let headphones = keep("headphones", headphones, old.as_ref().map(|m| m.headphones))?;
+    let spatial = keep("spatial", spatial, old.as_ref().map(|m| m.spatial_presets))?;
     let engine_sha256 = sha256(&engine_bytes);
     let manifest = Manifest {
         support: support(&ssid),
@@ -359,6 +371,25 @@ mod tests {
         std::fs::remove_file(src.join("Ext/Acer1025ABCD/CTC_1025ABCD.bin")).unwrap();
         assert!(matches!(import(std::slice::from_ref(&src), "1025ABCD", &data), Err(Error::Incomplete { .. })));
         assert!(!Manifest::dts_dir(&data).exists(), "failed imports leave nothing behind");
+        std::fs::remove_dir_all(&src).unwrap();
+        std::fs::remove_dir_all(&data).unwrap();
+    }
+
+    #[test]
+    fn driver_update_keeps_headphones_and_spatial() {
+        let (src, data) = (tmp("src5"), tmp("data5"));
+        fake_package(&src, "1025ABCD");
+        import(std::slice::from_ref(&src), "1025ABCD", &data).unwrap();
+        // As if the DTS app package had been imported too.
+        let dts = Manifest::dts_dir(&data);
+        std::fs::create_dir_all(dts.join("headphones")).unwrap();
+        std::fs::write(dts.join("headphones/catalog.json"), "[]").unwrap();
+        let mpath = data.join(Manifest::FILE);
+        let text = std::fs::read_to_string(&mpath).unwrap().replace("headphones = 0", "headphones = 7");
+        std::fs::write(&mpath, text).unwrap();
+        let m = import(std::slice::from_ref(&src), "1025ABCD", &data).unwrap();
+        assert_eq!(m.headphones, 7);
+        assert!(dts.join("headphones/catalog.json").exists());
         std::fs::remove_dir_all(&src).unwrap();
         std::fs::remove_dir_all(&data).unwrap();
     }

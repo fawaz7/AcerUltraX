@@ -133,6 +133,22 @@ pub const COVERED: &[&str] = &[
     "20721025", "207F1025", "21091025", "210E1025", "211F1025", "21291025", "212A1025", "21391025",
 ];
 
+/// Laptops whose tuning Acer changed between "XPERI DTS" 1.12.4.0 (what setup used up to AcerUltraX 0.1.2) and
+/// [`DRIVER`].
+const RETUNED_SINCE_1_12_4: &[&str] = &[
+    "1025168C", "10251697", "1025169B", "1025169C", "1025169D", "10251704", "10251713", "10251718", "1025171A",
+    "10251729", "1025172C", "1025172D", "10251730", "10251731", "10251732", "10251733", "10251734", "10251735",
+    "10251736", "10251738", "1025173F", "10251742", "10251743", "10251748", "1025174F", "10251752", "10251754",
+    "10251758", "10251759", "1025175B", "1025175C", "1025175E", "10251760", "10251761", "1025176B", "1025176D",
+    "171F1025",
+];
+
+/// Whether setting up again from Acer's current downloads changes how this laptop sounds.
+pub fn newer_tuning(m: &crate::Manifest) -> bool {
+    let old = m.source.file_name().is_some_and(|n| n.to_string_lossy().contains("XPERI DTS_XPERI_1.12.4.0"));
+    old && RETUNED_SINCE_1_12_4.iter().any(|s| s.eq_ignore_ascii_case(&m.ssid))
+}
+
 /// Whether Acer's downloads have the tuning for this laptop, so setup can be automatic.
 pub fn covers(ssid: &str) -> bool {
     COVERED.iter().any(|s| s.eq_ignore_ascii_case(ssid)) || fallback(ssid).is_some()
@@ -295,6 +311,7 @@ mod tests {
         assert!(COVERED.windows(2).all(|w| w[0] < w[1]), "sorted, no duplicates");
         assert!(covers("1025157a") && fallback("1025157A").is_some_and(|p| p.name.contains("1.6.16")));
         assert!(fallback("1025166C").is_none());
+        assert!(RETUNED_SINCE_1_12_4.iter().all(|s| COVERED.contains(s)));
         let fb = FALLBACKS.iter().flat_map(|(_, ids)| ids.iter());
         assert!(fb.clone().all(|s| !COVERED.contains(s)), "fallbacks only for laptops DRIVER lacks");
     }

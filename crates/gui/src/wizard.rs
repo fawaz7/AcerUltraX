@@ -64,11 +64,12 @@ fn time_left(secs: f64) -> String {
     }
 }
 
-/// Whether the download panel offers the extras or always gets them.
+/// Whether the download panel offers the extras, always gets them, or only gets the driver package.
 #[derive(Clone, Copy)]
 pub enum Extras {
     Choice(bool),
     Always,
+    Never,
 }
 
 /// Download Acer's files and set up, with progress and cancel; `done` runs on the main thread after success.
@@ -97,7 +98,7 @@ pub fn download_panel(ssid: String, extras: Extras, done: impl Fn(&importer::Man
             panel.append(&row);
             Some(sw)
         }
-        Extras::Always => None,
+        Extras::Always | Extras::Never => None,
     };
     let go = gtk::Button::new();
     go.add_css_class("primary");
@@ -112,7 +113,7 @@ pub fn download_panel(ssid: String, extras: Extras, done: impl Fn(&importer::Man
 
     let with_extras = {
         let sw = switch.clone();
-        move || sw.as_ref().is_none_or(|s| s.is_active())
+        move || !matches!(extras, Extras::Never) && sw.as_ref().is_none_or(|s| s.is_active())
     };
     let idle_label = {
         let (go, with_extras) = (go.clone(), with_extras.clone());

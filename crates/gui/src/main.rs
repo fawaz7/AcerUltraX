@@ -438,6 +438,9 @@ fn settings_page() -> gtk::Box {
         ));
     }
     if let (Ok(m), Some(c)) = (importer::Manifest::load(&importer::data_dir()), importer::laptop_codec()) {
+        if importer::download::newer_tuning(&m) {
+            page.append(&retune_card(c.ssid.clone()));
+        }
         if m.headphones == 0 && importer::download::covers(&c.ssid) {
             page.append(&extras_card(c.ssid));
         }
@@ -665,6 +668,25 @@ fn release_notes(md: &str) -> String {
         .take(8)
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+/// Offer Acer's newer tuning when the laptop was set up from the 2023 package and Acer has re-tuned it since.
+fn retune_card(ssid: String) -> gtk::Box {
+    let card = vbox(10);
+    card.add_css_class("card");
+    card.append(&label("Newer sound from Acer", &[]));
+    card.append(&label(
+        "Acer has re-tuned the DTS sound for your laptop since it was set up. Get the new tuning from Acer; \
+         your profiles, settings and headphone models stay.",
+        &["muted", "small"],
+    ));
+    card.append(&wizard::download_panel(ssid, wizard::Extras::Never, |_| {
+        let cli = std::env::current_exe()
+            .map(|e| e.with_file_name("acerultrax-cli"))
+            .unwrap_or_else(|_| "acerultrax-cli".into());
+        let _ = std::process::Command::new(cli).arg("restart").status();
+    }));
+    card
 }
 
 /// Offer the DTS app download when setup skipped it.
