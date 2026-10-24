@@ -15,6 +15,8 @@ pub struct AuxTray {
     pub profile: Option<String>,
     /// The four profiles the menu offers.
     pub shown: Vec<String>,
+    /// A newer AcerUltraX version, when there is one.
+    pub update: Option<String>,
 }
 
 fn open_window() {
@@ -110,7 +112,7 @@ impl ksni::Tray for AuxTray {
             self.profile.as_deref().and_then(|p| self.shown.iter().position(|m| m == p)).unwrap_or(self.shown.len());
         let options: Vec<RadioItem> =
             self.shown.iter().map(|m| RadioItem { label: client::label(m), ..Default::default() }).collect();
-        vec![
+        let mut items: Vec<MenuItem<Self>> = vec![
             StandardItem {
                 label: self.device.clone().unwrap_or_else(|| "Service not running".into()),
                 enabled: false,
@@ -148,6 +150,18 @@ impl ksni::Tray for AuxTray {
                 ..Default::default()
             }
             .into(),
-        ]
+        ];
+        if let Some(v) = &self.update {
+            let open_about = Box::new(|_: &mut Self| {
+                gtk::glib::MainContext::default().invoke(|| crate::show_window_page("about"));
+            });
+            items.insert(
+                0,
+                StandardItem { label: format!("Update to version {v}…"), activate: open_about, ..Default::default() }
+                    .into(),
+            );
+            items.insert(1, MenuItem::Separator);
+        }
+        items
     }
 }

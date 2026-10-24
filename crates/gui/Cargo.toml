@@ -18,3 +18,4 @@ ksni.workspace = true
 serde_json.workspace = true
 anyhow.workspace = true
 importer.workspace = true
+ureq.workspace = true

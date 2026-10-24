@@ -4,6 +4,7 @@
 mod client;
 mod profiles;
 mod tray;
+mod update;
 mod wizard;
 
 use std::cell::{Cell, RefCell};
@@ -558,6 +559,7 @@ fn about_page() -> gtk::Box {
     links.append(&link("Report a problem", "https://github.com/fawaz7/AcerUltraX/issues", "outline"));
     page.append(&links);
     page.append(&center(label("Like it? A star helps other Acer owners find it.", &["muted", "small"])));
+    page.append(&update_card());
 
     let legal = center(label(
         "Free and open source under the MIT licence. Not affiliated with or endorsed by Acer.",
@@ -567,6 +569,102 @@ fn about_page() -> gtk::Box {
     legal.set_max_width_chars(60);
     page.append(&legal);
     page
+}
+
+/// Updates: status, release notes, the update button (or what to do instead), and the automatic check.
+fn update_card() -> gtk::Box {
+    let card = vbox(10);
+    card.add_css_class("card");
+    card.set_margin_top(18);
+    card.set_size_request(520, -1);
+    let status = label("", &[]);
+    let notes = label("", &["muted", "small"]);
+    notes.set_wrap(true);
+    notes.set_max_width_chars(70);
+    let manual = label("", &["muted", "small"]);
+    manual.set_wrap(true);
+    manual.set_selectable(true);
+    let buttons = hbox(10);
+    let install = gtk::Button::with_label("Update now");
+    install.add_css_class("primary");
+    let check = gtk::Button::with_label("Check now");
+    check.add_css_class("outline");
+    check.connect_clicked(|_| update::check_now());
+    install.connect_clicked(|_| {
+        if let update::State::Available(r) = update::state() {
+            update::install(r);
+        }
+    });
+    buttons.append(&install);
+    buttons.append(&check);
+    let auto = hbox(12);
+    let auto_text = label("Check for updates automatically", &["muted", "small"]);
+    auto_text.set_hexpand(true);
+    let sw = gtk::Switch::new();
+    sw.set_active(update::automatic());
+    sw.update_property(&[gtk::accessible::Property::Label("Check for updates automatically")]);
+    sw.connect_active_notify(|s| update::set_automatic(s.is_active()));
+    auto.append(&auto_text);
+    auto.append(&sw);
+    for w in [
+        status.upcast_ref::<gtk::Widget>(),
+        notes.upcast_ref(),
+        manual.upcast_ref(),
+        buttons.upcast_ref(),
+        auto.upcast_ref(),
+    ] {
+        card.append(w);
+    }
+
+    // Follow the background check while the page exists.
+    let weak = card.downgrade();
+    let mut last = String::new();
+    let refresh = move || {
+        let Some(_card) = weak.upgrade() else { return glib::ControlFlow::Break };
+        let st = update::state();
+        let key = format!("{st:?}");
+        if key == last {
+            return glib::ControlFlow::Continue;
+        }
+        last = key;
+        let method = update::method();
+        let (text, available) = match &st {
+            update::State::Unknown => ("Updates are not checked automatically.".to_string(), None),
+            update::State::Checking => ("Checking for updates…".into(), None),
+            update::State::UpToDate => ("AcerUltraX is up to date.".into(), None),
+            update::State::Failed(e) => (format!("Could not update: {e}."), None),
+            update::State::Installing(what) => (what.clone(), None),
+            update::State::Installed(v) => (format!("Version {v} is installed. Restarting…"), None),
+            update::State::Available(r) => (format!("Version {} is available.", r.version), Some(r)),
+        };
+        status.set_text(&text);
+        notes.set_text(available.map(|r| release_notes(&r.notes)).as_deref().unwrap_or(""));
+        notes.set_visible(available.is_some());
+        let manual_text = match (&method, available) {
+            (update::Method::Manual(how), Some(_)) => Some(*how),
+            _ => None,
+        };
+        manual.set_text(manual_text.unwrap_or(""));
+        manual.set_visible(manual_text.is_some());
+        install.set_visible(available.is_some() && !matches!(method, update::Method::Manual(_)));
+        check.set_sensitive(!matches!(st, update::State::Checking | update::State::Installing(_)));
+        glib::ControlFlow::Continue
+    };
+    let mut refresh = refresh;
+    refresh();
+    glib::timeout_add_local(Duration::from_millis(500), refresh);
+    card
+}
+
+/// GitHub release notes as plain text: the list items, without Markdown marks.
+fn release_notes(md: &str) -> String {
+    md.lines()
+        .map(str::trim)
+        .filter(|l| l.starts_with("- ") || l.starts_with("* "))
+        .map(|l| format!("• {}", l[2..].replace("**", "").replace('`', "")))
+        .take(8)
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// Offer the DTS app download when setup skipped it.
@@ -856,23 +954,37 @@ fn build_window(app: &gtk::Application) -> gtk::ApplicationWindow {
     window
 }
 
+/// Switch the main window to a page by its sidebar label ("about", "settings", …).
+fn show_page(window: &gtk::ApplicationWindow, page: &str) {
+    // root box -> sidebar -> nav buttons: activate the one whose label matches.
+    let Some(side) = window.child().and_then(|r| r.first_child()) else { return };
+    let mut c = side.first_child();
+    while let Some(b) = c {
+        if let Ok(t) = b.clone().downcast::<gtk::ToggleButton>() {
+            if t.label().is_some_and(|l| l.eq_ignore_ascii_case(page)) {
+                t.set_active(true);
+            }
+        }
+        c = b.next_sibling();
+    }
+}
+
+/// Open the app on a page (from the top-bar menu).
+pub(crate) fn show_window_page(page: &str) {
+    let Some(app) = gtk::gio::Application::default() else { return };
+    app.activate();
+    if let Some(w) = app.downcast_ref::<gtk::Application>().and_then(|a| a.windows().into_iter().next()) {
+        if let Ok(w) = w.downcast::<gtk::ApplicationWindow>() {
+            show_page(&w, page);
+        }
+    }
+}
+
 /// Developer aid: save the window as a PNG once it has been drawn, then quit (`ACERULTRAX_SNAPSHOT=out.png`;
 /// `ACERULTRAX_PAGE=devices|settings` picks the page).
 fn snapshot_and_quit(app: &gtk::Application, window: &gtk::ApplicationWindow, path: PathBuf) {
     if let Some(page) = std::env::var_os("ACERULTRAX_PAGE") {
-        let mut w = window.child();
-        // root box -> sidebar -> nav buttons: activate the one whose label matches.
-        if let Some(side) = w.take().and_then(|r| r.first_child()) {
-            let mut c = side.first_child();
-            while let Some(b) = c {
-                if let Ok(t) = b.clone().downcast::<gtk::ToggleButton>() {
-                    if t.label().is_some_and(|l| l.eq_ignore_ascii_case(&page.to_string_lossy())) {
-                        t.set_active(true);
-                    }
-                }
-                c = b.next_sibling();
-            }
-        }
+        show_page(window, &page.to_string_lossy());
     }
     let (app, window) = (app.clone(), window.clone());
     let delay = std::env::var("ACERULTRAX_SNAPSHOT_DELAY").ok().and_then(|d| d.parse().ok()).unwrap_or(1500);
@@ -923,6 +1035,9 @@ fn main() -> glib::ExitCode {
         }
         if tray_autostart_file().exists() || hidden {
             tray::start(app);
+        }
+        if !started.get() {
+            update::start_daily();
         }
         let window = build_window(app);
         if !(hidden && !started.get()) {
