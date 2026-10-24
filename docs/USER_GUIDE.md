@@ -11,6 +11,7 @@ Voice, Custom Audio), tuned by Acer for your laptop's speakers and for headphone
 - **Any distribution, no package manager:** download the `.tar.gz` from the latest release, unpack it and run
   `./install.sh` (it installs into your home folder; `./install.sh --uninstall` removes it).
 - **Arch-based:** `makepkg -si` in `packaging/aur` of the repository.
+- **Nix / Home Manager:** use the repository's flake or its Home Manager module (`inputs.acerultrax.homeManagerModules.default`).
 
 The [README](https://github.com/fawaz7/AcerUltraX#install) has the exact commands. You need PipeWire with
 WirePlumber, which is the default on current Fedora, Ubuntu, Debian, openSUSE and Arch.
