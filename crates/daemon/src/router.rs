@@ -939,7 +939,7 @@ impl Router {
     /// Spatial sound on or off for `device` (default: the current output).
     pub fn set_spatial(&mut self, on: bool, device: Option<&str>) -> Result<(), String> {
         if self.spatial.is_none() {
-            return Err("spatial sound is not set up (import Acer's \"XPERI DTS Utility\" 2023 download)".into());
+            return Err("spatial sound is not set up (set up Acer's \"XPERI DTS Utility\" download)".into());
         }
         let key = match device {
             Some(d) => d.to_string(),

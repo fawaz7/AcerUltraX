@@ -88,14 +88,14 @@ pub const FALLBACKS: &[(Package, &[&str])] = &[
     ),
 ];
 
-/// Application: "XPERI DTS Utility" 2023.3.1.0 (headphone models and spatial sound).
+/// Application: "XPERI DTS Utility" 2026.1.2.0 (headphone models and spatial sound).
 pub const APP: Package = Package {
-    name: "XPERI DTS Utility 2023.3.1.0",
+    name: "XPERI DTS Utility 2026.1.2.0",
     adds: "headphone models and spatial sound",
-    url: "https://global-download.acer.com/GDFiles/Driver/XPERI%20DTS%20Utility/XPERI%20DTS%20Utility_XPERI_2023.3.1.0_W11x64_A.zip?acerid=638343404298794200",
-    file: "XPERI DTS Utility_XPERI_2023.3.1.0_W11x64_A.zip",
-    size: 385_190_255,
-    sha256: "758d63981797f935dae3061fdd4fa626bbcb46d2ca08568e6a8b0e999df2268d",
+    url: "https://global-download.acer.com/GDFiles/Driver/XPERI%20DTS%20Utility/XPERI%20DTS%20Utility_XPERI_2026.1.2.0_W11x64_A.zip?acerid=639114103200274707",
+    file: "XPERI DTS Utility_XPERI_2026.1.2.0_W11x64_A.zip",
+    size: 584_343_098,
+    sha256: "7263dfa91517112407ec17fc0f5c086edf9371f87c238310e6f6040098fff161",
 };
 
 /// Sound-chip subsystem IDs whose tuning is in [`DRIVER`].

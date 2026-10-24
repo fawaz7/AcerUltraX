@@ -26,7 +26,7 @@ enum Command {
     Detect,
     /// Set up everything in one go: download Acer's DTS files for this laptop from Acer and import them.
     Setup {
-        /// Skip the DTS app download (385 MB; adds headphone models and spatial sound).
+        /// Skip the DTS app download (584 MB; adds headphone models and spatial sound).
         #[arg(long)]
         no_extras: bool,
     },
