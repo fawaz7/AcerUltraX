@@ -28,8 +28,8 @@ then:
 
 If the download is interrupted, click it again: it carries on where it stopped.
 
-The Predator Helios 16 (PH16-71) is verified against Windows; about 160 other Acer laptops with DTS:X Ultra should
-work too, but have not been checked yet. If you have one, please
+The Predator Helios 16 (PH16-71) is verified against Windows and the PH16-72 is confirmed by its owner; about 280
+other Acer laptops with DTS:X Ultra should work too, but most have not been checked yet. If you have one, please
 [tell us how it works](https://github.com/fawaz7/AcerUltraX/issues).
 
 **If your laptop is not in Acer's package** (or you have no internet on the laptop), the setup window shows the

@@ -57,14 +57,15 @@ Linux sound is the flat dashed line:
 ## Supported laptops
 
 > [!NOTE]
-> I only have a **Predator Helios 16 (PH16-71)** to test on. Acer's DTS package has tunings for about 160 Acer
-> laptops, and they should work the same way, but nobody has tried them yet. **If you have another Acer laptop,
+> I only have a **Predator Helios 16 (PH16-71)** to test on. Acer's DTS package has tunings for about 280 Acer
+> laptops, and they should work the same way, but few have been tried yet. **If you have another Acer laptop,
 > please try it and [tell us how it went](../../issues)**, with the output of `acerultrax-cli detect`. "It works"
 > is just as useful as a bug report.
 
 | Laptop | Status |
 |---|---|
 | Acer Predator Helios 16 (PH16-71) | ✅ **Verified** against Windows |
+| Acer Predator Helios 16 (PH16-72) | ✅ Works, confirmed by its owner ([#5](../../issues/5)) |
 | Other Predator models with DTS:X Ultra (Helios, Helios Neo, Triton) | 🧪 Experimental: should work |
 | Nitro, Swift and Aspire models with DTS:X Ultra | 🧪 Experimental: should work |
 | Acer laptops whose tuning is not in Acer's package | 🛠️ Manual setup from Acer's support site |

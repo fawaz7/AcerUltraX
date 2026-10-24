@@ -58,7 +58,11 @@ pub enum Support {
 }
 
 /// Sound-chip subsystem IDs (as in the Acer tuning folder names) that have been verified.
-pub const VERIFIED_MODELS: &[(&str, &str)] = &[("1025166C", "Acer Predator Helios 16 PH16-71")];
+pub const VERIFIED_MODELS: &[(&str, &str)] = &[
+    ("1025166C", "Acer Predator Helios 16 PH16-71"),
+    // Confirmed by its owner (issue #5).
+    ("1025172D", "Acer Predator Helios 16 PH16-72"),
+];
 
 pub fn support(ssid: &str) -> Support {
     if VERIFIED_MODELS.iter().any(|(s, _)| s.eq_ignore_ascii_case(ssid)) {
