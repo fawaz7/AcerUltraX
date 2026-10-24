@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.4 (unreleased)
+
+- NixOS: a Nix flake and a Home Manager module ([#4](https://github.com/fawaz7/AcerUltraX/pull/4), by
+  [@gettbitgirl](https://github.com/gettbitgirl)).
+- The Predator Helios 16 PH16-72 is confirmed working by its owner
+  ([#5](https://github.com/fawaz7/AcerUltraX/issues/5)).
+- Buttons now visibly react when you point at them and click them.
+- Links on the About page fall back to the default browser when the desktop's link handler fails.
+
 ## 0.1.3 (2026-10-24)
 
 - Setup now uses Acer's newest DTS driver (2026, version 1.16.11), suggested in

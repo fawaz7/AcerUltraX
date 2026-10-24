@@ -190,6 +190,13 @@ It was also **vibe coded**: written with an AI coding assistant (Claude), direct
 on my own laptop. Before release it went through a security review and a performance review; everything they
 found was fixed, and all tests pass, including a bit-for-bit comparison with the Windows engine.
 
+## Contributors
+
+- [@gettbitgirl](https://github.com/gettbitgirl): NixOS packaging (flake and Home Manager module), and the report
+  that led to using Acer's newest drivers.
+
+Contributions are welcome: every pull request gets a security review before it is merged.
+
 ## Support the project
 
 If AcerUltraX made your laptop sound right, **[give it a ⭐](https://github.com/fawaz7/AcerUltraX)**: it helps
