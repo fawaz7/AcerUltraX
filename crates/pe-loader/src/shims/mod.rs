@@ -124,6 +124,7 @@ fn all() -> &'static [(&'static str, usize)] {
             LeaveCriticalSection => sync::LeaveCriticalSection,
             DeleteCriticalSection => sync::DeleteCriticalSection,
             SleepConditionVariableCS => sync::SleepConditionVariableCS,
+            SleepConditionVariableSRW => sync::SleepConditionVariableSRW,
             WakeAllConditionVariable => sync::WakeAllConditionVariable,
             CreateEventW => sync::CreateEventW,
             SetEvent => sync::SetEvent,
@@ -167,6 +168,7 @@ fn all() -> &'static [(&'static str, usize)] {
             RegQueryValueExW => misc::RegQueryValueExW,
             RegCloseKey => misc::RegCloseKey,
             OutputDebugStringA => misc::OutputDebugStringA,
+            VirtualProtect => misc::VirtualProtect,
             // module.rs
             GetModuleHandleW => module::GetModuleHandleW,
             GetModuleHandleExW => module::GetModuleHandleExW,
@@ -196,6 +198,8 @@ fn all() -> &'static [(&'static str, usize)] {
             FindClose => file::FindClose,
             PathCchRemoveFileSpec => file::PathCchRemoveFileSpec,
             PathCchAddBackslash => file::PathCchAddBackslash,
+            GetFileAttributesW => file::GetFileAttributesW,
+            GetSystemDirectoryW => file::GetSystemDirectoryW,
             // string.rs
             GetCommandLineA => string::GetCommandLineA,
             GetCommandLineW => string::GetCommandLineW,

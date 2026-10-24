@@ -4,10 +4,10 @@
 
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicPtr, Ordering};
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::time::Duration;
 
-use super::{Bool, ERROR_INVALID_HANDLE, ERROR_TIMEOUT, FALSE, Handle, TRUE, file, set_last_error};
+use super::{Bool, ERROR_INVALID_HANDLE, ERROR_TIMEOUT, FALSE, Handle, TRUE, file, set_last_error, winrt};
 use crate::thread;
 
 const INFINITE: u32 = u32::MAX;
@@ -89,11 +89,9 @@ unsafe fn condvar(cv: *mut c_void) -> *mut libc::pthread_cond_t {
     }
 }
 
-pub unsafe extern "win64" fn SleepConditionVariableCS(cv: *mut c_void, cs: *mut c_void, ms: u32) -> Bool {
-    // SAFETY: the caller holds `cs` (once), as Win32 requires.
+/// Wait on `c` with `m` held (and released while waiting), Win32 style: FALSE with ERROR_TIMEOUT on timeout.
+unsafe fn cond_wait(c: *mut libc::pthread_cond_t, m: *mut libc::pthread_mutex_t, ms: u32) -> Bool {
     unsafe {
-        let c = condvar(cv);
-        let m = cs_mutex(cs);
         if ms == INFINITE {
             libc::pthread_cond_wait(c, m);
             return TRUE;
@@ -111,8 +109,56 @@ pub unsafe extern "win64" fn SleepConditionVariableCS(cv: *mut c_void, cs: *mut 
     }
 }
 
+pub unsafe extern "win64" fn SleepConditionVariableCS(cv: *mut c_void, cs: *mut c_void, ms: u32) -> Bool {
+    // SAFETY: the caller holds `cs` (once), as Win32 requires.
+    unsafe { cond_wait(condvar(cv), cs_mutex(cs), ms) }
+}
+
+// SRW locks spin (winrt.rs), so SRW waiters park on one process-wide mutex. Wakers take it too, so a wake that
+// comes between releasing the SRW lock and starting to wait is not lost.
+fn srw_wait_mutex() -> *mut libc::pthread_mutex_t {
+    static M: OnceLock<usize> = OnceLock::new();
+    *M.get_or_init(|| {
+        // SAFETY: a boxed mutex that is never freed or moved.
+        unsafe {
+            let m: *mut libc::pthread_mutex_t = Box::into_raw(Box::new(std::mem::zeroed()));
+            libc::pthread_mutex_init(m, std::ptr::null());
+            m as usize
+        }
+    }) as *mut libc::pthread_mutex_t
+}
+
+const CONDITION_VARIABLE_LOCKMODE_SHARED: u32 = 1;
+
+pub unsafe extern "win64" fn SleepConditionVariableSRW(cv: *mut c_void, l: *mut c_void, ms: u32, flags: u32) -> Bool {
+    let shared = flags & CONDITION_VARIABLE_LOCKMODE_SHARED != 0;
+    // SAFETY: the caller holds `l` in the mode `flags` names, as Win32 requires.
+    unsafe {
+        let m = srw_wait_mutex();
+        libc::pthread_mutex_lock(m);
+        if shared {
+            winrt::ReleaseSRWLockShared(l)
+        } else {
+            winrt::ReleaseSRWLockExclusive(l)
+        }
+        let r = cond_wait(condvar(cv), m, ms);
+        libc::pthread_mutex_unlock(m);
+        if shared {
+            winrt::AcquireSRWLockShared(l)
+        } else {
+            winrt::AcquireSRWLockExclusive(l)
+        }
+        r
+    }
+}
+
 pub unsafe extern "win64" fn WakeAllConditionVariable(cv: *mut c_void) {
-    unsafe { libc::pthread_cond_broadcast(condvar(cv)) };
+    unsafe {
+        let m = srw_wait_mutex();
+        libc::pthread_mutex_lock(m);
+        libc::pthread_cond_broadcast(condvar(cv));
+        libc::pthread_mutex_unlock(m);
+    }
 }
 
 pub struct Event {

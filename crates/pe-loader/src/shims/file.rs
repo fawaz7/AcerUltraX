@@ -114,6 +114,33 @@ pub unsafe extern "win64" fn CreateFileW(
     }
 }
 
+const INVALID_FILE_ATTRIBUTES: u32 = u32::MAX;
+const FILE_ATTRIBUTE_DIRECTORY: u32 = 0x10;
+const FILE_ATTRIBUTE_NORMAL: u32 = 0x80;
+
+/// Newer engines check that a tuning file exists before opening it.
+pub unsafe extern "win64" fn GetFileAttributesW(name: *const u16) -> u32 {
+    let root = crate::file_root();
+    match unsafe { wide_to_string(name) }.and_then(|n| map_path(&n, root.as_deref())) {
+        Some(p) if p.is_dir() => FILE_ATTRIBUTE_DIRECTORY,
+        Some(_) => FILE_ATTRIBUTE_NORMAL,
+        None => {
+            set_last_error(ERROR_FILE_NOT_FOUND);
+            INVALID_FILE_ATTRIBUTES
+        }
+    }
+}
+
+/// A Windows-looking system folder outside the file root, so files the engine looks for there are not found and
+/// it uses the module folder instead.
+pub unsafe extern "win64" fn GetSystemDirectoryW(buf: *mut u16, cap: u32) -> u32 {
+    let dir = "C:\\Windows\\System32";
+    if (cap as usize) <= dir.len() {
+        return dir.len() as u32 + 1;
+    }
+    unsafe { super::write_wide(dir, buf, cap) }
+}
+
 pub unsafe extern "win64" fn ReadFile(h: Handle, buf: *mut u8, len: u32, read: *mut u32, _ov: *mut c_void) -> Bool {
     let Some(Object::File(f)) = get(h) else { return bad_handle() };
     let dst = unsafe { std::slice::from_raw_parts_mut(buf, len as usize) };

@@ -1268,9 +1268,17 @@ impl Router {
         v
     }
 
+    /// Whether the laptop's DTS tuning has the profile's mode (many have no Voice, Game2 or Game3).
+    pub fn has_mode(&self, p: &Profile) -> bool {
+        p.dts_mode().is_none_or(|m| self.oem.tuning(m, dts_eagle::Output::Speakers).is_some())
+    }
+
     /// Use `profile` on `device` (default: the current one; `@speakers`/`@headphones`: the laptop's own outputs).
     pub fn set_profile(&mut self, profile: &str, device: Option<&str>) -> Result<(), String> {
         let p = self.config.profile(profile).ok_or_else(|| format!("no profile named {profile:?}"))?;
+        if !self.has_mode(&p) {
+            return Err(format!("this laptop's DTS tuning has no {} mode", p.mode));
+        }
         let (name, kind) = match device {
             Some("@speakers") => (String::new(), Kind::Speakers),
             Some("@headphones") => (String::new(), Kind::Headphones),

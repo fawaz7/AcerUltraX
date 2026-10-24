@@ -101,7 +101,10 @@ pub fn handle(r: &mut Router, req: &Value) -> Value {
     let err = |e: String| json!({"ok": false, "error": e});
     match req.get("cmd").and_then(Value::as_str).unwrap_or("") {
         "status" => ok(serde_json::to_value(r.status()).unwrap()),
-        "profiles" => ok(serde_json::to_value(r.config.all_profiles()).unwrap()),
+        "profiles" => {
+            let v: Vec<_> = r.config.all_profiles().into_iter().filter(|p| r.has_mode(p)).collect();
+            ok(serde_json::to_value(v).unwrap())
+        }
         "devices" => ok(serde_json::to_value(r.devices()).unwrap()),
         "set-profile" => match req.get("name").and_then(Value::as_str) {
             Some(n) => {

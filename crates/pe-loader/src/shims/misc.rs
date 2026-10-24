@@ -170,3 +170,30 @@ pub unsafe extern "win64" fn OutputDebugStringA(s: *const u8) {
         log::debug!("DLL: {}", s.trim_end());
     }
 }
+
+const PAGE_READONLY: u32 = 0x02;
+
+/// Newer MSVC runtimes make their read-only `.fptable` section writable for a moment to fill it in.
+// shortcut: the old protection is always reported as read-only (right for data sections); track real
+// protections if a DLL ever re-protects code with it.
+pub unsafe extern "win64" fn VirtualProtect(addr: *mut c_void, size: usize, new: u32, old: *mut u32) -> Bool {
+    let prot = match new & 0xff {
+        0x01 => libc::PROT_NONE,
+        0x02 => libc::PROT_READ,
+        0x04 | 0x08 => libc::PROT_READ | libc::PROT_WRITE,
+        0x10 | 0x20 => libc::PROT_READ | libc::PROT_EXEC,
+        0x40 | 0x80 => libc::PROT_READ | libc::PROT_WRITE | libc::PROT_EXEC,
+        _ => return FALSE,
+    };
+    log::debug!("VirtualProtect({addr:?}, {size:#x}, {new:#x})");
+    let start = addr as usize & !0xfff;
+    let end = (addr as usize + size.max(1) + 0xfff) & !0xfff;
+    // SAFETY: the DLL asks for its own pages, as on Windows.
+    if unsafe { libc::mprotect(start as *mut c_void, end - start, prot) } != 0 {
+        return FALSE;
+    }
+    if !old.is_null() {
+        unsafe { *old = PAGE_READONLY };
+    }
+    TRUE
+}

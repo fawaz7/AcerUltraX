@@ -119,7 +119,8 @@ pub struct Manifest {
     pub engine_verified: bool,
     /// Imported tuning file names (in `dts/`) and their SHA-256.
     pub files: Vec<(String, String)>,
-    /// Files the configuration names for external speakers that the package does not contain.
+    /// Files the configuration names (for external speakers or modes other than Off and Music) that the package
+    /// does not contain.
     #[serde(default)]
     pub missing_optional: Vec<String>,
     /// Headphone models imported (0 without the DTS app package).
@@ -179,22 +180,22 @@ pub fn import(srcs: &[PathBuf], ssid: &str, data_dir: &Path) -> Result<Manifest,
     // Check the tuning before touching the existing installation.
     let xml = String::from_utf8_lossy(&read(config)?).into_owned();
     let oem = dts_eagle::OemConfig::parse(&xml)?;
+    // Many laptops have only some of the modes (no Voice, Game2, Game3); every one has Off and Music.
+    let core = |t: &dts_eagle::ModeTuning| {
+        t.output != dts_eagle::Output::ExternalSpeakers
+            && matches!(t.mode, dts_eagle::Mode::Off | dts_eagle::Mode::Music)
+    };
     for out in [dts_eagle::Output::Speakers, dts_eagle::Output::Headphones] {
-        for mode in dts_eagle::Mode::ALL {
+        for mode in [dts_eagle::Mode::Off, dts_eagle::Mode::Music] {
             if oem.tuning(mode, out).is_none() {
                 return Err(Error::Incomplete { ssid, what: format!("no {mode} mode for {out:?}") });
             }
         }
     }
-    // Files for the laptop's speakers and headphones are required. Some Acer packages name external-speaker
-    // files they do not ship; those are left out, as Windows has to do too.
-    let mut wanted: Vec<(String, bool)> = oem
-        .tunings
-        .iter()
-        .flat_map(|t| {
-            t.files().into_iter().map(move |f| (f.to_string(), t.output != dts_eagle::Output::ExternalSpeakers))
-        })
-        .collect();
+    // Files for Off and Music on the speakers and headphones are required. Some Acer packages name files for
+    // other modes or external speakers that they do not ship; those are left out, as Windows has to do too.
+    let mut wanted: Vec<(String, bool)> =
+        oem.tunings.iter().flat_map(|t| t.files().into_iter().map(move |f| (f.to_string(), core(t)))).collect();
     wanted.sort();
     wanted.dedup_by(|b, a| {
         let same = a.0 == b.0;
@@ -353,6 +354,29 @@ mod tests {
         std::fs::remove_file(src.join("Ext/Acer1025ABCD/CTC_1025ABCD.bin")).unwrap();
         assert!(matches!(import(std::slice::from_ref(&src), "1025ABCD", &data), Err(Error::Incomplete { .. })));
         assert!(!Manifest::dts_dir(&data).exists(), "failed imports leave nothing behind");
+        std::fs::remove_dir_all(&src).unwrap();
+        std::fs::remove_dir_all(&data).unwrap();
+    }
+
+    #[test]
+    fn some_modes_and_unshipped_files() {
+        let (src, data) = (tmp("src4"), tmp("data4"));
+        fake_package(&src, "1025ABCD");
+        // Like many Acer configurations: only some modes, and one names a file the package does not ship.
+        let mut xml = String::from("<srs_configuration>");
+        for out in ["APO4-Internal Stereo", "APO4-Headphone"] {
+            for (m, f) in [("APO4-Off", "ctc"), ("APO4-Music", "ctc"), ("APO4-Custom Audio", "ctc_v2")] {
+                xml += &format!(
+                    "<operating_mode><control name=\"APO4-Operating Mode\">{m}</control>\
+                     <control name=\"APO4-Speaker Type\">{out}</control>\
+                     <control name=\"MFX:Eagle-CTC Blob\">{f}_1025ABCD.bin</control></operating_mode>"
+                );
+            }
+        }
+        xml += "</srs_configuration>";
+        std::fs::write(src.join("Ext/Acer1025ABCD/dts_apo4_oem_config_1025ABCD.xml"), xml).unwrap();
+        let m = import(std::slice::from_ref(&src), "1025ABCD", &data).unwrap();
+        assert_eq!(m.missing_optional, ["ctc_v2_1025ABCD.bin"]);
         std::fs::remove_dir_all(&src).unwrap();
         std::fs::remove_dir_all(&data).unwrap();
     }

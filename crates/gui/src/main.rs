@@ -29,6 +29,12 @@ const MODES: [(&str, &str, &str); 8] = [
     ("Off", "Off", "Neutral, speakers protected"),
 ];
 
+/// The mode buttons for the modes this laptop's tuning has (all of them while the service is not reachable).
+fn available_modes() -> impl Iterator<Item = &'static (&'static str, &'static str, &'static str)> {
+    let known = client::profiles();
+    MODES.iter().filter(move |m| known.is_empty() || known.iter().any(|k| k == m.0))
+}
+
 fn config_dir() -> PathBuf {
     std::env::var_os("XDG_CONFIG_HOME")
         .filter(|v| !v.is_empty())
@@ -54,7 +60,14 @@ fn tray_profiles() -> Vec<String> {
         .filter(|l| !l.is_empty())
         .take(4)
         .collect();
-    if saved.len() == 4 { saved } else { tray::DEFAULT_SHOWN.iter().map(|s| s.to_string()).collect() }
+    if saved.len() == 4 {
+        return saved;
+    }
+    // Laptops without some modes (Voice) get the next available ones instead.
+    let modes: Vec<&str> = available_modes().map(|m| m.0).collect();
+    let mut v: Vec<String> = tray::DEFAULT_SHOWN.iter().filter(|d| modes.contains(d)).map(|s| s.to_string()).collect();
+    v.extend(modes.iter().filter(|m| !tray::DEFAULT_SHOWN.contains(m)).take(4 - v.len()).map(|s| s.to_string()));
+    v
 }
 
 fn set_tray_profiles(names: &[String]) {
@@ -173,7 +186,7 @@ fn sound_page(ui_modes: &mut Vec<(String, gtk::ToggleButton)>) -> SoundPage {
     grid.set_column_spacing(12);
     grid.set_column_homogeneous(true);
     let mut first: Option<gtk::ToggleButton> = None;
-    for (i, (profile, name, hint)) in MODES.iter().enumerate() {
+    for (i, (profile, name, hint)) in available_modes().enumerate() {
         let inner = vbox(6);
         inner.append(&label(name, &["name"]));
         inner.append(&label(hint, &["muted", "small"]));
@@ -464,8 +477,7 @@ fn top_bar_card(row: &RowFn) -> gtk::Box {
 
     picks.append(&gtk::Separator::new(Orientation::Horizontal));
     picks.append(&label("Profiles in the top-bar menu", &[]));
-    let names: Vec<String> = MODES
-        .iter()
+    let names: Vec<String> = available_modes()
         .map(|m| m.0.to_string())
         .chain(client::profiles().into_iter().filter(|n| !profiles::is_builtin(n)))
         .collect();
