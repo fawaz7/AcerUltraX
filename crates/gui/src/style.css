@@ -61,3 +61,23 @@ window.aux { background: @bg; color: @text; font-family: Inter, Cantarell, sans-
 .aux progressbar progress { background: @accent; border-radius: 4px; min-height: 6px; }
 .aux separator { background: @line; }
 .aux .about-name { font-size: 30px; font-weight: 800; }
+
+/* Hover and press feedback, so every button reads as clickable. These come last: `button.outline:not(:checked)`
+   above is more specific than a plain :hover. */
+.aux .nav, .aux .mode, .aux .outline, .aux .primary, .aux dropdown > button, .aux .profile-list row {
+  transition: background 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
+}
+.aux .nav:hover { background: @raised; color: @text; }
+.aux .nav:checked:hover { background: @line2; }
+.aux .nav:active { background: @line2; }
+.aux .mode:hover { background: @raised; border-color: #3b4757; }
+.aux .mode:checked:hover { background: #12343b; border-color: #4ddcf1; }
+.aux .mode:active { background: @line; }
+.aux button.outline:not(:checked):hover { background: @accent_bg; border-color: #4ddcf1; color: #4ddcf1; }
+.aux button.outline:not(:checked):active { background: #134049; }
+.aux .outline:checked:hover { background: #4ddcf1; }
+.aux .primary:hover { background: #5be3f5; box-shadow: 0 0 0 3px alpha(@accent, 0.25); }
+.aux .primary:active { background: #1bb8d0; box-shadow: none; }
+.aux dropdown > button:hover { border-color: @accent; }
+.aux .profile-list row:hover { background: @card; color: @text; }
+.aux .profile-list row:selected:hover { background: @line2; }

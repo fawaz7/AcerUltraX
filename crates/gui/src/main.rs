@@ -514,6 +514,22 @@ fn top_bar_card(row: &RowFn) -> gtk::Box {
     card
 }
 
+/// Open a web page in the browser: through the desktop portal, else the system's default handler.
+pub(crate) fn open_uri(from: &impl IsA<gtk::Widget>, uri: &'static str) {
+    gtk::UriLauncher::new(uri).launch(
+        from.root().and_downcast_ref::<gtk::Window>(),
+        gtk::gio::Cancellable::NONE,
+        move |r| {
+            if let Err(e) = r {
+                eprintln!("acerultrax: opening {uri} through the portal failed ({e}); trying the default browser");
+                if let Err(e) = gtk::gio::AppInfo::launch_default_for_uri(uri, gtk::gio::AppLaunchContext::NONE) {
+                    eprintln!("acerultrax: could not open {uri}: {e}");
+                }
+            }
+        },
+    );
+}
+
 /// Built by, links, and a star.
 fn about_page() -> gtk::Box {
     let page = vbox(14);
@@ -548,13 +564,7 @@ fn about_page() -> gtk::Box {
     let link = |text: &str, uri: &'static str, class: &str| {
         let b = gtk::Button::with_label(text);
         b.add_css_class(class);
-        b.connect_clicked(move |b| {
-            gtk::UriLauncher::new(uri).launch(
-                b.root().and_downcast_ref::<gtk::Window>(),
-                gtk::gio::Cancellable::NONE,
-                |_| {},
-            );
-        });
+        b.connect_clicked(move |b| open_uri(b, uri));
         b
     };
     links.append(&link("★  Star on GitHub", "https://github.com/fawaz7/AcerUltraX", "primary"));

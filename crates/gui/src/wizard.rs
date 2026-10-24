@@ -256,10 +256,7 @@ fn manual_card(model: &str, done: Rc<dyn Fn()>, parent: &gtk::ApplicationWindow)
     let open = gtk::Button::with_label("Open Acer support");
     open.add_css_class("outline");
     open.set_halign(Align::Start);
-    open.connect_clicked(|b| {
-        let launcher = gtk::UriLauncher::new("https://www.acer.com/support");
-        launcher.launch(b.root().and_downcast_ref::<gtk::Window>(), gio::Cancellable::NONE, |_| {});
-    });
+    open.connect_clicked(|b| crate::open_uri(b, "https://www.acer.com/support"));
     card.append(&open);
     card.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
     let files_label = label("", &["muted", "small"]);
