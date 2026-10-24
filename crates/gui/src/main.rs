@@ -551,7 +551,18 @@ fn about_page() -> gtk::Box {
     let name = center(label("", &["about-name"]));
     name.set_markup("Acer<span foreground=\"#22d3ee\">UltraX</span>");
     page.append(&name);
-    page.append(&center(label(&format!("Version {}", env!("CARGO_PKG_VERSION")), &["muted", "small"])));
+    let version = hbox(8);
+    version.set_halign(Align::Center);
+    let number = label(&format!("Version {}", env!("CARGO_PKG_VERSION")), &["muted", "small"]);
+    number.set_wrap(false);
+    version.append(&number);
+    // Test builds (ACERULTRAX_CHANNEL=preview at build time) say so.
+    if option_env!("ACERULTRAX_CHANNEL") == Some("preview") {
+        let badge = label("Preview", &["chip", "warn", "badge"]);
+        badge.set_valign(Align::Center);
+        version.append(&badge);
+    }
+    page.append(&version);
     page.append(&center(label("Your Acer laptop's Windows sound, on Linux.", &[])));
     let by = center(label("", &["muted"]));
     by.set_markup("Built with care by <b>Fawaz Al-Ghzawi</b>");

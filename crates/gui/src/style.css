@@ -57,6 +57,7 @@ window.aux { background: @bg; color: @text; font-family: Inter, Cantarell, sans-
 .aux .link { background: none; border: none; box-shadow: none; color: @accent; padding: 0 2px; min-height: 0; font-weight: 600; }
 .aux .link:hover label { text-decoration-line: underline; }
 .aux .chip.warn { background: #2a2310; color: #fbbf24; }
+.aux .chip.badge { padding: 2px 10px; font-size: 11px; }
 .aux progressbar trough { background: @line2; border-radius: 4px; min-height: 6px; }
 .aux progressbar progress { background: @accent; border-radius: 4px; min-height: 6px; }
 .aux separator { background: @line; }
