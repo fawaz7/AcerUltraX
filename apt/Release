@@ -1,22 +1,22 @@
 Architectures: amd64
-Date: Sat, 24 Oct 2026 11:42:03 +0000
+Date: Sat, 24 Oct 2026 14:41:02 +0000
 Description: AcerUltraX: your Acer laptop's Windows sound on Linux
 Label: AcerUltraX
 Origin: AcerUltraX
 Suite: stable
 MD5Sum:
- 46e495faa8ca883cd17aabbdb3e67865             3345 Packages
- 355f9e45f60d5d36557823f3255b6a95             1129 Packages.gz
- caed4562069358061f028830f6f8b1d3              177 Release
+ 2347fb60231f53b848d5d4cd6ad8ad26             4460 Packages
+ 1f9dfc6bbc4a60dc7405b0c263f976ad             1327 Packages.gz
+ 124c97f8160a7d07ff1bd3505cd23b96              177 Release
 SHA1:
- 8e93fc44e3f03ff5ba211400feff5e01a43cd29e             3345 Packages
- a66de42b9c88453e643e76067b9bbd98c034f7fe             1129 Packages.gz
- a8b81d2537689043e744157fae920bb312ee6d0b              177 Release
+ 38891dfd48287eeea49bfdb1b3adef9774ad9005             4460 Packages
+ cb62c5d6bc88147cf4021594bbad71412d013b9a             1327 Packages.gz
+ 739d5f60fe9e644c8645678f30239418631d81f6              177 Release
 SHA256:
- b8a4440a82ae4b3ecdd661d9f9294bbbe0e764905c868fbfe16a35ae435a4c29             3345 Packages
- 4392c00ae187acd45f7a4f27d0372afed831af045dd2a229ee17ed439f4fce68             1129 Packages.gz
- f40c3e29e45011ab6644b975bfd4de87e8b6aac3e46fb85ea0c86fceb0d1d934              177 Release
+ 6d2fd7aa523ec0c195c1962dd0f9746691f520f562369d21588bcce3c0666f20             4460 Packages
+ c2862240a4f9b596419f5746846fdf452f73ddc5da5122e9c952f49f7075dc89             1327 Packages.gz
+ c77e567bf3fd5aa4f34597829b29bdb76c519c8987a908257826d2b7352acd56              177 Release
 SHA512:
- 479a43bc976f4a403ac63f484e240fe6920d72eddee77266ae244ff2416fd4da28634a3155d2a8000e3e0ef0ac7a885631f5a75193d3907bb3fdbfb201fd91d4             3345 Packages
- 4b840cb05f577fe90d1622c74bdd8c5953b1c8927ebf264aff04b15dbf1c7c6f2e40bb22a42034970cf2f7582cae2befc8b321aea96a84952f14a50594998edc             1129 Packages.gz
- 0bcd0fcf5d75396b54c0c1a284dbffc310063359aaa071cef9e6a5b209f93ba26f240ee51093cbc3195a426b107d84cb31fab9405344a770d2de38edcc75e810              177 Release
+ 8ebbe520fd716b6f7375f87afaf6051dc1b82c73756bdd1d3165dc217368fb4a021da84a20ee71e61b1359da32a71391552be79f2f907cff2623de3d3c7d6acb             4460 Packages
+ fcf825efaa0486f7bbfdf2e7f4db6f17bebe72d474a6e2c7431334d35931dea4189ec10f5e55dc155642b00a9f16e211ef556e03d2a84ac51c0eacb5cdd9a939             1327 Packages.gz
+ a67a016950c2c5cab0ce8e1bf80a19cc33081a01c7167db7ff59b8e9b9e9722d2378d3885078ef60242c18dc4230594a29d30eee5ebb115f67284f2c0ef1d199              177 Release
